@@ -1,3 +1,4 @@
+import { apiClient } from '../services/apiClient';
 import {
   AlertTriangle,
   ArrowRight,
@@ -55,29 +56,17 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
   const fetchTelegramData = async () => {
     try {
       setLoading(true);
-      const [sRes, lRes, qRes, tRes] = await Promise.all([
-        fetch('/api/telegram/settings'),
-        fetch('/api/telegram/logs'),
-        fetch('/api/telegram/queue'),
-        fetch('/api/telegram/topics'),
+      const [sData, lData, qData, tData] = await Promise.all([
+        apiClient.getTelegramSettings(),
+        apiClient.getTelegramLogs(),
+        apiClient.getTelegramQueue(),
+        apiClient.getTelegramTopics(),
       ]);
 
-      if (sRes.ok) {
-        const sData = await sRes.json();
-        if (sData && sData.bot_token) setSettings(sData);
-      }
-      if (lRes.ok) {
-        const lData = await lRes.json();
-        if (Array.isArray(lData)) setLogs(lData);
-      }
-      if (qRes.ok) {
-        const qData = await qRes.json();
-        if (Array.isArray(qData)) setQueue(qData);
-      }
-      if (tRes && tRes.ok) {
-        const tData = await tRes.json();
-        if (Array.isArray(tData) && tData.length > 0) setTopics(tData);
-      }
+      if (sData && sData.bot_token) setSettings(sData);
+      if (Array.isArray(lData)) setLogs(lData);
+      if (Array.isArray(qData)) setQueue(qData);
+      if (Array.isArray(tData) && tData.length > 0) setTopics(tData);
     } catch (err) {
       console.error('Error fetching Telegram data:', err);
     } finally {
@@ -98,14 +87,8 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
   const handleSaveSettings = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/telegram/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      });
-      if (res.ok) {
-        showToast('✅ บันทึกการตั้งค่า Telegram Bot สำเร็จ');
-      }
+      await apiClient.saveTelegramSettings(settings);
+      showToast('✅ บันทึกการตั้งค่า Telegram Bot สำเร็จ');
     } catch (err) {
       showToast('❌ ไม่สามารถบันทึกการตั้งค่าได้');
     } finally {
@@ -117,14 +100,8 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
   const handleSaveTopics = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/telegram/topics', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(topics),
-      });
-      if (res.ok) {
-        showToast('✅ บันทึกการตั้งค่า Telegram Topics เรียบร้อยแล้ว');
-      }
+      await apiClient.saveTelegramTopics(topics);
+      showToast('✅ บันทึกการตั้งค่า Telegram Topics เรียบร้อยแล้ว');
     } catch (err) {
       showToast('❌ ไม่สามารถบันทึก Topics ได้');
     } finally {

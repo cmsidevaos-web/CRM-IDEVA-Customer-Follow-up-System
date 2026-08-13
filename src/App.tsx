@@ -19,6 +19,7 @@ import { UserManualView } from './components/UserManualView';
 import { Sidebar } from './components/Sidebar';
 import { WorkflowBanner } from './components/WorkflowBanner';
 import { realtimeService } from './services/RealtimeService';
+import { apiClient } from './services/apiClient';
 
 import {
   Activity,
@@ -75,35 +76,24 @@ export default function App() {
     try {
       setLoading(true);
 
-      const [custRes, actRes, ordRes] = await Promise.all([
-        fetch('/api/customers'),
-        fetch('/api/activities'),
-        fetch('/api/orders'),
+      const [custData, actData, ordData] = await Promise.all([
+        apiClient.getCustomers(),
+        apiClient.getActivities(),
+        apiClient.getOrders(),
       ]);
 
-      if (custRes.ok) {
-        const data = await custRes.json();
-        if (data && Array.isArray(data.customers)) {
-          setCustomers(data.customers);
-          if (data.fromSupabase) setSupabaseConnected(true);
-          if (data.tableMissing) setTableMissing(true);
-        } else if (Array.isArray(data)) {
-          setCustomers(data);
-        }
+      if (custData && Array.isArray(custData.customers)) {
+        setCustomers(custData.customers);
+        if (custData.fromSupabase) setSupabaseConnected(true);
+        if (custData.tableMissing) setTableMissing(true);
       }
 
-      if (actRes.ok) {
-        const actData = await actRes.json();
-        if (Array.isArray(actData)) {
-          setActivities(actData);
-        }
+      if (Array.isArray(actData)) {
+        setActivities(actData);
       }
 
-      if (ordRes.ok) {
-        const ordData = await ordRes.json();
-        if (Array.isArray(ordData)) {
-          setOrders(ordData);
-        }
+      if (Array.isArray(ordData)) {
+        setOrders(ordData);
       }
     } catch (err) {
       console.error('Error fetching Supabase data:', err);
@@ -186,13 +176,8 @@ export default function App() {
     setCustomers((prev) => [newCust, ...prev]);
 
     try {
-      const res = await fetch('/api/customers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newCust),
-      });
-      if (res.ok) {
-        const saved = await res.json();
+      const saved = await apiClient.createCustomer(newCust);
+      if (saved) {
         setCustomers((prev) => prev.map((c) => (c.id === newCust.id ? saved : c)));
       }
     } catch (e) {
@@ -208,7 +193,7 @@ export default function App() {
       setActiveTab('CUSTOMERS');
     }
     try {
-      await fetch(`/api/customers/${id}`, { method: 'DELETE' });
+      await apiClient.deleteCustomer(id);
     } catch (e) {}
   };
 
@@ -255,11 +240,7 @@ export default function App() {
     }
 
     try {
-      await fetch('/api/activities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      await apiClient.createActivity(newAct);
     } catch (e) {}
   };
 
@@ -323,11 +304,7 @@ export default function App() {
     }
 
     try {
-      await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      await apiClient.createOrder(newOrd);
     } catch (e) {}
   };
 
@@ -340,11 +317,7 @@ export default function App() {
     setSelectedCustomer((prev) => (prev ? { ...prev, status: newStatus } : null));
 
     try {
-      await fetch(`/api/customers/${selectedCustomer.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      });
+      await apiClient.updateCustomer(selectedCustomer.id, { status: newStatus });
     } catch (e) {}
   };
 
@@ -362,11 +335,7 @@ export default function App() {
     setNotes((prev) => [newNote, ...prev]);
 
     try {
-      await fetch('/api/notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newNote),
-      });
+      await apiClient.createNote(newNote);
     } catch (e) {}
   };
 
@@ -387,13 +356,8 @@ export default function App() {
     setDocuments((prev) => [newDoc, ...prev]);
 
     try {
-      const res = await fetch('/api/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newDoc),
-      });
-      if (res.ok) {
-        const saved = await res.json();
+      const saved = await apiClient.createDocument(newDoc);
+      if (saved) {
         setDocuments((prev) => prev.map((d) => (d.id === newDoc.id ? saved : d)));
       }
     } catch (e) {
@@ -405,7 +369,7 @@ export default function App() {
   const handleDeleteDocument = async (docId: string) => {
     setDocuments((prev) => prev.filter((d) => d.id !== docId));
     try {
-      await fetch(`/api/documents/${docId}`, { method: 'DELETE' });
+      await apiClient.deleteDocument(docId);
     } catch (e) {
       console.error('Failed to delete document:', e);
     }
