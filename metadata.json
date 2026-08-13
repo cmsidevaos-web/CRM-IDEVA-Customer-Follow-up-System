@@ -1,0 +1,6 @@
+{
+  "name": "CRM - IDEVA OS",
+  "description": "ระบบจัดการความสัมพันธ์ลูกค้าและติดตามการซื้อซ้ำ (CRM - IDEVA OS Follow-up & Repeat Order System)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
