@@ -11,6 +11,8 @@ import { DashboardView } from './components/DashboardView';
 import { ExportModal } from './components/ExportModal';
 import { Header } from './components/Header';
 import { LeadsKanbanView } from './components/LeadsKanbanView';
+import { MobileAppGrid } from './components/MobileAppGrid';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import { OrdersView } from './components/OrdersView';
 import { RepeatOrderView } from './components/RepeatOrderView';
 import { ReportsView } from './components/ReportsView';
@@ -463,7 +465,7 @@ export default function App() {
         />
 
         {/* Dynamic Main Dashboard / View Body */}
-        <main className="flex-1 p-4 lg:p-6 space-y-6 max-w-[1600px] w-full mx-auto">
+        <main className="flex-1 p-3 sm:p-4 lg:p-6 space-y-6 max-w-[1600px] w-full mx-auto pb-20 md:pb-6">
           {/* Table Setup Banner if Supabase table is not yet created in schema cache */}
           {tableMissing && (
             <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
@@ -487,6 +489,20 @@ export default function App() {
                 ดู & คัดลอก SQL Script (Settings)
               </button>
             </div>
+          )}
+
+          {/* Mobile App Grid View (Center Hub on Mobile) */}
+          {activeTab === 'APP_GRID' && (
+            <MobileAppGrid
+              onSelectTab={setActiveTab}
+              onOpenCreateCustomer={() => setIsCreateCustomerOpen(true)}
+              onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
+              onOpenCreateOrder={() => setIsCreateOrderOpen(true)}
+              customerCount={(customers || []).length}
+              todayCount={todayCount}
+              overdueCount={overdueCount}
+              dueRepeatCount={dueRepeatCount}
+            />
           )}
 
           {/* Visual Workflow Diagram Banner (Always accessible on Dashboard & Customers view) */}
@@ -664,6 +680,17 @@ export default function App() {
           alert(`กำลังเตรียมดาวน์โหลดไฟล์รายงาน ${exportModal.type}...`);
           setExportModal({ isOpen: false, type: 'EXCEL' });
         }}
+      />
+
+      {/* Mobile Sticky Bottom Navigation Bar */}
+      <MobileBottomNav
+        currentTab={activeTab}
+        onSelectTab={setActiveTab}
+        customerCount={(customers || []).length}
+        todayCount={todayCount}
+        overdueCount={overdueCount}
+        dueRepeatCount={dueRepeatCount}
+        onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
       />
     </div>
   );

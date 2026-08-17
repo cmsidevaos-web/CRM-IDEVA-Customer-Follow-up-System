@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Filter,
+  Grid,
   Plus,
   RefreshCw,
   Search,
@@ -54,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   const activeUser = currentUser || user || { name: 'คุณสมชาย ใจดี', role: 'SALES', avatar: '', salesOwnerTag: '' };
 
   const tabTitles: Record<ViewTab, string> = {
+    APP_GRID: 'IDEVA OS - ศูนย์รวมแอปพลิเคชัน',
     DASHBOARD: 'Dashboard - ภาพรวมระบบติดตามลูกค้า',
     CUSTOMERS: 'Customer List - รายชื่อลูกค้าทั้งหมด',
     CUSTOMER_PROFILE: selectedCustomerName ? `Customer Profile - ${selectedCustomerName}` : 'Customer Profile - ข้อมูลลูกค้า',
@@ -69,14 +71,22 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="bg-white border-b border-slate-200 h-16 px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
-      {/* Title & Breadcrumb */}
-      <div className="flex items-center space-x-3">
-        <div>
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+    <header className="bg-white border-b border-slate-200 h-16 px-3 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+      {/* Title & Mobile Launcher Toggle */}
+      <div className="flex items-center space-x-2.5 min-w-0">
+        <button
+          onClick={() => setCurrentTab('APP_GRID')}
+          className="md:hidden p-2 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-600 transition-colors flex-shrink-0"
+          title="ศูนย์รวมแอปพลิเคชัน"
+        >
+          <Grid size={18} />
+        </button>
+
+        <div className="min-w-0">
+          <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex items-center gap-1.5 truncate">
             {tabTitles[currentTab] || 'CRM - IDEVA OS'}
           </h2>
-          <p className="text-xs text-slate-500">
+          <p className="text-[10px] sm:text-xs text-slate-500 truncate">
             {new Date().toLocaleDateString('th-TH', {
               weekday: 'long',
               year: 'numeric',

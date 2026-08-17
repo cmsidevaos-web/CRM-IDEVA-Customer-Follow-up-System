@@ -221,6 +221,7 @@ export interface TelegramQueueItem {
 }
 
 export type ViewTab = 
+  | 'APP_GRID'
   | 'DASHBOARD'
   | 'CUSTOMERS'
   | 'CUSTOMER_PROFILE'
