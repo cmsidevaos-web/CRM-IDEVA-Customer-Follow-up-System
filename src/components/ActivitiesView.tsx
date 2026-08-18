@@ -46,10 +46,16 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({
         return <span className="bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-full text-[11px]">โทรศัพท์ (Call)</span>;
       case 'LINE':
         return <span className="bg-emerald-500 text-white font-bold px-2.5 py-0.5 rounded-full text-[11px]">LINE Chat</span>;
+      case 'FACEBOOK':
+        return <span className="bg-blue-600 text-white font-bold px-2.5 py-0.5 rounded-full text-[11px]">Facebook</span>;
       case 'EMAIL':
         return <span className="bg-blue-100 text-blue-800 font-bold px-2.5 py-0.5 rounded-full text-[11px]">Email</span>;
       case 'MEETING':
         return <span className="bg-purple-100 text-purple-800 font-bold px-2.5 py-0.5 rounded-full text-[11px]">ประชุม (Meeting)</span>;
+      case 'SITE_VISIT':
+        return <span className="bg-amber-100 text-amber-800 font-bold px-2.5 py-0.5 rounded-full text-[11px]">เยี่ยมชมหน้างาน</span>;
+      case 'DEMO':
+        return <span className="bg-indigo-100 text-indigo-800 font-bold px-2.5 py-0.5 rounded-full text-[11px]">สาธิตสินค้า</span>;
       default:
         return <span className="bg-slate-100 text-slate-700 font-bold px-2.5 py-0.5 rounded-full text-[11px]">{type}</span>;
     }
@@ -94,8 +100,11 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({
           <option value="ALL">ประเภทกิจกรรม: ทั้งหมด</option>
           <option value="CALL">โทรศัพท์ (Call)</option>
           <option value="LINE">LINE Chat</option>
+          <option value="FACEBOOK">Facebook</option>
           <option value="EMAIL">Email</option>
           <option value="MEETING">ประชุม (Meeting)</option>
+          <option value="SITE_VISIT">เยี่ยมชมหน้างาน</option>
+          <option value="DEMO">สาธิตสินค้า</option>
         </select>
       </div>
 

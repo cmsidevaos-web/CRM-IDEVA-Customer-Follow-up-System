@@ -5,14 +5,49 @@ import {
   ChevronDown,
   Filter,
   Grid,
+  Lock,
   Plus,
   RefreshCw,
   Search,
+  Shield,
   User,
+  UserCheck,
+  Users,
   X
 } from 'lucide-react';
 import React, { useState } from 'react';
 import { NotificationItem, UserProfile, ViewTab } from '../types';
+
+export const AVAILABLE_USERS: UserProfile[] = [
+  {
+    id: 'USER-SALES-A',
+    name: 'คุณสมชาย ใจดี (Sales A)',
+    role: 'SALES',
+    email: 'somchai@ideva.co.th',
+    salesOwnerTag: 'คุณสมชาย (Sales A)',
+  },
+  {
+    id: 'USER-SALES-B',
+    name: 'คุณนภา รัตนโชติ (Sales B)',
+    role: 'SALES',
+    email: 'napha@ideva.co.th',
+    salesOwnerTag: 'คุณนภา (Sales B)',
+  },
+  {
+    id: 'USER-MANAGER',
+    name: 'คุณวิชัย เจริญผล (Manager)',
+    role: 'MANAGER',
+    email: 'wichai@ideva.co.th',
+    salesOwnerTag: 'คุณวิชัย (Manager)',
+  },
+  {
+    id: 'USER-ADMIN',
+    name: 'ผู้ดูแลระบบสูงสุด (Super Admin)',
+    role: 'ADMIN',
+    email: 'admin@ideva.co.th',
+    salesOwnerTag: 'ALL',
+  },
+];
 
 interface HeaderProps {
   currentTab?: ViewTab;
@@ -21,6 +56,7 @@ interface HeaderProps {
   onMarkNotificationsRead?: () => void;
   currentUser?: UserProfile;
   user?: UserProfile;
+  onSwitchUser?: (user: UserProfile) => void;
   selectedSalesOwner?: string;
   setSelectedSalesOwner?: (sales: string) => void;
   dateRange?: string;
@@ -40,6 +76,7 @@ export const Header: React.FC<HeaderProps> = ({
   onMarkNotificationsRead = () => {},
   currentUser,
   user,
+  onSwitchUser = (_u: UserProfile) => {},
   selectedSalesOwner = 'ALL',
   setSelectedSalesOwner = (_sales: string) => {},
   dateRange = 'ALL',
@@ -50,9 +87,11 @@ export const Header: React.FC<HeaderProps> = ({
   selectedCustomerName,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
   const activeNotifications = notifications || [];
   const unreadCount = activeNotifications.filter((n) => !n.isRead).length;
-  const activeUser = currentUser || user || { name: 'คุณสมชาย ใจดี', role: 'SALES', avatar: '', salesOwnerTag: '' };
+  const activeUser = currentUser || user || AVAILABLE_USERS[0];
 
   const tabTitles: Record<ViewTab, string> = {
     APP_GRID: 'IDEVA OS - ศูนย์รวมแอปพลิเคชัน',
@@ -69,6 +108,8 @@ export const Header: React.FC<HeaderProps> = ({
     USER_MANUAL: 'User Manual - คู่มือการใช้งานระบบแบบละเอียด',
     SETTINGS: 'Settings - ตั้งค่าระบบและสิทธิ์การใช้งาน',
   };
+
+  const isAdminOrManager = activeUser.role === 'ADMIN' || activeUser.role === 'MANAGER';
 
   return (
     <header className="bg-white border-b border-slate-200 h-16 px-3 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
@@ -93,12 +134,17 @@ export const Header: React.FC<HeaderProps> = ({
               month: 'long',
               day: 'numeric',
             })}
+            {!isAdminOrManager && (
+              <span className="ml-2 font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded text-[10px]">
+                📌 มุมมองงานส่วนตัว: {activeUser.salesOwnerTag || activeUser.name}
+              </span>
+            )}
           </p>
         </div>
       </div>
 
       {/* Top Controls & Actions */}
-      <div className="flex items-center space-x-3">
+      <div className="flex items-center space-x-2.5 sm:space-x-3">
         {/* Date Range Selector */}
         <div className="hidden lg:flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs text-slate-700">
           <CalendarIcon size={14} className="text-slate-400" />
@@ -109,25 +155,34 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <option value="TODAY">วันนี้ ({new Date().toLocaleDateString('th-TH')})</option>
             <option value="THIS_WEEK">สัปดาห์นี้</option>
-            <option value="THIS_MONTH">เดือนนี้ (กรกฎาคม 2026)</option>
+            <option value="THIS_MONTH">เดือนนี้</option>
             <option value="ALL">ทั้งหมด</option>
           </select>
         </div>
 
-        {/* Sales Owner Filter */}
-        <div className="hidden md:flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs text-slate-700">
-          <Filter size={14} className="text-slate-400" />
-          <select
-            value={selectedSalesOwner}
-            onChange={(e) => setSelectedSalesOwner(e.target.value)}
-            className="bg-transparent font-medium focus:outline-none cursor-pointer"
-          >
-            <option value="ALL">ผู้รับผิดชอบ: ทั้งหมด</option>
-            <option value="คุณสมชาย (Sales A)">คุณสมชาย (Sales A)</option>
-            <option value="คุณนภา (Sales B)">คุณนภา (Sales B)</option>
-            <option value="คุณวิชัย (Manager)">คุณวิชัย (Manager)</option>
-          </select>
-        </div>
+        {/* Sales Owner Filter (Accessible for Admin / Manager, or displayed locked for Sales) */}
+        {isAdminOrManager ? (
+          <div className="hidden md:flex items-center space-x-1.5 bg-blue-50/60 border border-blue-200 px-3 py-1.5 rounded-xl text-xs text-blue-900">
+            <Filter size={14} className="text-blue-500" />
+            <select
+              value={selectedSalesOwner}
+              onChange={(e) => setSelectedSalesOwner(e.target.value)}
+              className="bg-transparent font-bold focus:outline-none cursor-pointer text-blue-900"
+            >
+              <option value="ALL">👑 แอดมิน: ดูเซลล์ทั้งหมด (All Sales)</option>
+              <option value="คุณสมชาย (Sales A)">คุณสมชาย (Sales A)</option>
+              <option value="คุณนภา (Sales B)">คุณนภา (Sales B)</option>
+              <option value="คุณวิชัย (Manager)">คุณวิชัย (Manager)</option>
+            </select>
+          </div>
+        ) : (
+          <div className="hidden md:flex items-center space-x-1.5 bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs text-slate-600">
+            <Lock size={12} className="text-slate-400" />
+            <span className="font-semibold text-[11px] truncate max-w-[140px]">
+              {activeUser.salesOwnerTag || activeUser.name}
+            </span>
+          </div>
+        )}
 
         {/* Quick Action Button */}
         <button
@@ -220,17 +275,96 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Current User Profile */}
-        <div className="flex items-center space-x-2 pl-3 border-l border-slate-200">
-          <div className="w-9 h-9 rounded-xl bg-blue-900 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-            {activeUser.name ? activeUser.name.charAt(2) || 'S' : 'S'}
-          </div>
-          <div className="hidden xl:block text-left">
-            <div className="text-xs font-bold text-slate-800 leading-tight">{activeUser.name}</div>
-            <span className="text-[10px] bg-blue-100 text-blue-800 font-semibold px-1.5 py-0.5 rounded-md inline-block">
-              {activeUser.role}
-            </span>
-          </div>
+        {/* Current User Profile & Role Switcher Dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className="flex items-center space-x-2 pl-2 sm:pl-3 border-l border-slate-200 hover:opacity-80 transition-opacity text-left"
+            title="คลิกเพื่อสลับบัญชีผู้ใช้งาน / ผู้รับผิดชอบ (Role Switcher)"
+          >
+            <div
+              className={`w-9 h-9 rounded-xl text-white flex items-center justify-center font-bold text-sm shadow-xs ${
+                activeUser.role === 'ADMIN'
+                  ? 'bg-rose-700'
+                  : activeUser.role === 'MANAGER'
+                  ? 'bg-indigo-700'
+                  : 'bg-blue-800'
+              }`}
+            >
+              {activeUser.name ? activeUser.name.charAt(2) || 'S' : 'S'}
+            </div>
+            <div className="hidden xl:block text-left">
+              <div className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[120px]">
+                {activeUser.name}
+              </div>
+              <div className="flex items-center gap-1">
+                <span
+                  className={`text-[9px] font-bold px-1.5 py-0.2 rounded inline-block ${
+                    activeUser.role === 'ADMIN'
+                      ? 'bg-rose-100 text-rose-800'
+                      : activeUser.role === 'MANAGER'
+                      ? 'bg-indigo-100 text-indigo-800'
+                      : 'bg-blue-100 text-blue-800'
+                  }`}
+                >
+                  {activeUser.role}
+                </span>
+                <ChevronDown size={12} className="text-slate-400" />
+              </div>
+            </div>
+          </button>
+
+          {/* User Switcher Dropdown */}
+          {showUserMenu && (
+            <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 py-3 z-50 text-xs animate-in fade-in slide-in-from-top-2">
+              <div className="px-4 pb-2 border-b border-slate-100">
+                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                  <Users size={15} className="text-blue-600" /> จำลองเข้าสู่ระบบตามรหัสเซลล์ / แอดมิน
+                </span>
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  เลือกผู้ใช้งานเพื่อทดสอบการแยกสิทธิ์และการแสดงผล Dashboard ตามเซลล์
+                </p>
+              </div>
+
+              <div className="py-1 divide-y divide-slate-50">
+                {AVAILABLE_USERS.map((usr) => {
+                  const isCurrent = usr.id === activeUser.id;
+                  return (
+                    <div
+                      key={usr.id}
+                      onClick={() => {
+                        onSwitchUser(usr);
+                        setShowUserMenu(false);
+                      }}
+                      className={`px-4 py-2.5 hover:bg-slate-50 transition-colors cursor-pointer flex items-center justify-between ${
+                        isCurrent ? 'bg-blue-50/60 font-bold' : ''
+                      }`}
+                    >
+                      <div>
+                        <div className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                          {usr.name}
+                          {usr.role === 'ADMIN' && <Shield size={12} className="text-rose-600" />}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          สิทธิ์: {usr.role} {usr.salesOwnerTag ? `(${usr.salesOwnerTag})` : ''}
+                        </div>
+                      </div>
+                      {isCurrent && (
+                        <span className="text-[10px] bg-blue-600 text-white font-bold px-2 py-0.5 rounded-full">
+                          ใช้งานอยู่
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="pt-2 px-4 border-t border-slate-100 text-[10px] text-slate-500">
+                💡 <strong>Sales Login:</strong> จะเห็นเฉพาะงานและลูกค้าของตนเอง<br />
+                👑 <strong>Admin Login:</strong> สามารถดูงานของทุกคนในบริษัทได้
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </header>

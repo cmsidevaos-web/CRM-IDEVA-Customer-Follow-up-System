@@ -26,6 +26,7 @@ export const LeadsKanbanView: React.FC<LeadsKanbanViewProps> = ({
   const safeCustomers = customers || [];
   const columns: { status: CustomerStatus; title: string; color: string }[] = [
     { status: 'NEW', title: 'Lead (ลูกค้าใหม่)', color: 'bg-blue-600' },
+    { status: 'EXISTING', title: 'Existing (ลูกค้าเก่า)', color: 'bg-teal-600' },
     { status: 'CONTACTED', title: 'Contacted (ติดต่อแล้ว)', color: 'bg-indigo-600' },
     { status: 'FOLLOW_UP', title: 'Follow-up (กำลังติดตาม)', color: 'bg-sky-600' },
     { status: 'QUOTATION_SENT', title: 'Quotation (ส่งใบเสนอราคา)', color: 'bg-purple-600' },

@@ -8,7 +8,7 @@ export class ActivityService {
 
   async saveActivity(activity: Activity): Promise<Activity> {
     if (!activity.summary || activity.summary.trim() === '') {
-      throw new Error('Activity summary is required');
+      activity.summary = activity.detail?.slice(0, 60) || activity.nextAction || `${activity.type || 'Activity'} - ติดต่อลูกค้า`;
     }
     return await activityRepository.save(activity);
   }

@@ -37,7 +37,7 @@ export class OrderRepository {
     if (error) {
       console.error('[OrderRepository.save error]:', error.message);
       if (error.message.includes('notification_queue') || error.code === '42P01') {
-        throw new Error(`Supabase Setup Required: The database trigger requires table 'notification_queue'. Please go to Telegram Settings -> Database DDL & Triggers, copy the SQL script, and run it in your Supabase SQL Editor.`);
+        throw new Error(`Supabase Setup Required: ตาราง 'notification_queue' ยังไม่ถูกสร้างใน Supabase Database ทำให้ Database Trigger ของ Orders ติดขัด กรุณาไปที่เมนู 'ตั้งค่า Telegram' -> 'Database DDL & Triggers' และคลิกปุ่ม 'คัดลอก Quick Fix SQL' เพื่อนำไปรันใน Supabase SQL Editor`);
       }
       throw new Error(`Failed to save order: ${error.message}`);
     }

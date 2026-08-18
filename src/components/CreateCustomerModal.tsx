@@ -131,12 +131,42 @@ export const CreateCustomerModal: React.FC<CreateCustomerModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 mb-1">สินค้าที่สนใจ</label>
+              <label className="block font-bold text-slate-700 mb-1">ความสนใจเบื้องต้น (Sale / Product Type)</label>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInterestedProducts('ครีมกันแดด SPF50+ (ผลิตล็อตจริง)');
+                    setAvgReorderCycleDays(60);
+                  }}
+                  className={`p-2 rounded-xl border text-center font-bold text-[11px] transition-all ${
+                    !interestedProducts.includes('เทสเตอร์')
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  🏷️ สั่งผลิตแบรนด์
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInterestedProducts('ชุดเทสเตอร์ทดลองสูตร (Tester Sample)');
+                    setAvgReorderCycleDays(0);
+                  }}
+                  className={`p-2 rounded-xl border text-center font-bold text-[11px] transition-all ${
+                    interestedProducts.includes('เทสเตอร์')
+                      ? 'border-purple-500 bg-purple-50 text-purple-800'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  🧪 สนใจเทสเตอร์
+                </button>
+              </div>
               <input
                 type="text"
                 value={interestedProducts}
                 onChange={(e) => setInterestedProducts(e.target.value)}
-                placeholder="ครีมกันแดด SPF50+"
+                placeholder="ระบุสินค้าที่สนใจ..."
                 className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
@@ -174,9 +204,10 @@ export const CreateCustomerModal: React.FC<CreateCustomerModalProps> = ({
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value as CustomerStatus)}
-                className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium"
               >
                 <option value="NEW">NEW (ลูกค้าใหม่)</option>
+                <option value="EXISTING">EXISTING (ลูกค้าเก่า)</option>
                 <option value="CONTACTED">CONTACTED (ติดต่อแล้ว)</option>
                 <option value="FOLLOW_UP">FOLLOW_UP (กำลังติดตาม)</option>
               </select>

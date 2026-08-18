@@ -167,6 +167,8 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
   // Status Badge Helper
   const getStatusBadge = (status: CustomerStatus) => {
     switch (status) {
+      case 'EXISTING':
+        return <span className="bg-teal-100 text-teal-800 font-bold px-3 py-1 rounded-lg text-xs">ลูกค้าเก่า (Existing)</span>;
       case 'QUOTATION_SENT':
         return <span className="bg-purple-100 text-purple-800 font-bold px-3 py-1 rounded-lg text-xs">ส่งใบเสนอราคา (Quotation Sent)</span>;
       case 'NEGOTIATION':
@@ -366,7 +368,7 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
 
                 {showStatusDropdown && (
                   <div className="absolute left-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 z-20 text-xs">
-                    {(['NEW', 'CONTACTED', 'FOLLOW_UP', 'QUOTATION_SENT', 'NEGOTIATION', 'WON', 'LOST'] as CustomerStatus[]).map((st) => (
+                    {(['NEW', 'EXISTING', 'CONTACTED', 'FOLLOW_UP', 'QUOTATION_SENT', 'NEGOTIATION', 'WON', 'LOST'] as CustomerStatus[]).map((st) => (
                       <button
                         key={st}
                         onClick={() => {
@@ -404,7 +406,20 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
 
                     <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2 text-xs">
                       <div className="flex items-center justify-between text-slate-500">
-                        <span className="font-bold text-blue-700">{act.createdAt}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-blue-700">{act.createdAt}</span>
+                          {act.type === 'FACEBOOK' ? (
+                            <span className="bg-blue-600 text-white font-bold px-2 py-0.2 rounded-full text-[10px]">Facebook</span>
+                          ) : act.type === 'LINE' ? (
+                            <span className="bg-emerald-500 text-white font-bold px-2 py-0.2 rounded-full text-[10px]">LINE</span>
+                          ) : act.type === 'CALL' ? (
+                            <span className="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.2 rounded-full text-[10px]">Call</span>
+                          ) : act.type === 'EMAIL' ? (
+                            <span className="bg-blue-100 text-blue-800 font-bold px-2 py-0.2 rounded-full text-[10px]">Email</span>
+                          ) : act.type === 'MEETING' ? (
+                            <span className="bg-purple-100 text-purple-800 font-bold px-2 py-0.2 rounded-full text-[10px]">Meeting</span>
+                          ) : null}
+                        </div>
                         <span className="font-semibold text-slate-600 bg-slate-200/70 px-2 py-0.5 rounded-md text-[10px]">
                           {act.salesOwner}
                         </span>

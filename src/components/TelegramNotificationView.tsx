@@ -29,7 +29,7 @@ import {
   Zap
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
-import { TELEGRAM_SQL_SETUP_SCRIPT } from '../data/telegramSqlScripts';
+import { TELEGRAM_QUICK_FIX_SCRIPT, TELEGRAM_SQL_SETUP_SCRIPT } from '../data/telegramSqlScripts';
 import { buildTelegramCard, defaultTelegramSettings, defaultTelegramTopics } from '../services/telegramService';
 import { TelegramNotificationLog, TelegramQueueItem, TelegramRules, TelegramSettings, TelegramTopic } from '../types';
 
@@ -50,6 +50,7 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
   const [testType, setTestType] = useState<string>('FOLLOW_UP');
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
+  const [copiedQuickFix, setCopiedQuickFix] = useState(false);
   const [previewTheme, setPreviewTheme] = useState<'DARK' | 'LIGHT'>('DARK');
 
   // Fetch current Telegram config & logs from API
@@ -183,6 +184,13 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
     setCopiedSql(true);
     showToast('📋 คัดลอก DDL & Triggers SQL Script เรียบร้อยแล้ว');
     setTimeout(() => setCopiedSql(false), 3000);
+  };
+
+  const handleCopyQuickFixSql = () => {
+    navigator.clipboard.writeText(TELEGRAM_QUICK_FIX_SCRIPT);
+    setCopiedQuickFix(true);
+    showToast('⚡ คัดลอก Quick Fix (notification_queue) SQL เรียบร้อยแล้ว');
+    setTimeout(() => setCopiedQuickFix(false), 3000);
   };
 
   // Current Card Preview for live viewer
@@ -900,30 +908,66 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
 
       {/* TAB 5: DATABASE DDL & TRIGGERS */}
       {activeTab === 'SQL' && (
-        <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 text-slate-100 shadow-2xl space-y-4 font-mono text-xs">
-          <div className="flex justify-between items-center pb-4 border-b border-slate-800 font-sans">
-            <div>
-              <h3 className="font-bold text-base text-white flex items-center gap-2">
-                <Terminal size={20} className="text-emerald-400" /> PostgreSQL / Supabase Migration Script
-              </h3>
-              <p className="text-xs text-slate-400">
-                สคริปต์สร้างตาราง <code>telegram_settings</code>, <code>telegram_notification_logs</code>, <code>notification_queue</code>, SQL Functions และ Database Triggers
-              </p>
+        <div className="space-y-6">
+          {/* Quick Fix Banner */}
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-3xl p-5 text-amber-900 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Zap size={22} />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                  ⚡ Quick Fix: แก้ไข Error ตาราง notification_queue และ Triggers ใน Supabase
+                </h4>
+                <p className="text-xs text-slate-600 mt-1">
+                  หากพบข้อผิดพลาด <code>relation "notification_queue" does not exist</code> ขณะสร้าง Order หรือลูกค้า ให้คัดลอก Quick Fix Script ด้านล่างนี้ไปวางใน <strong>Supabase SQL Editor</strong> แล้วกด Run ทันที
+                </p>
+              </div>
             </div>
 
             <button
-              onClick={handleCopySql}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all flex items-center gap-2"
+              onClick={handleCopyQuickFixSql}
+              className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 flex-shrink-0 shadow-md"
             >
-              {copiedSql ? <Check size={16} /> : <Copy size={16} />}
-              {copiedSql ? 'คัดลอกแล้ว!' : 'คัดลอก SQL Script'}
+              {copiedQuickFix ? <Check size={16} /> : <Copy size={16} />}
+              {copiedQuickFix ? 'คัดลอก Quick Fix แล้ว!' : 'คัดลอก Quick Fix SQL'}
             </button>
           </div>
 
-          <div className="bg-black/50 p-4 rounded-2xl border border-slate-800 overflow-x-auto max-h-[500px]">
-            <pre className="text-emerald-400 leading-relaxed text-[11px] whitespace-pre-wrap">
-              {TELEGRAM_SQL_SETUP_SCRIPT}
-            </pre>
+          <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 text-slate-100 shadow-2xl space-y-4 font-mono text-xs">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-800 font-sans">
+              <div>
+                <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <Terminal size={20} className="text-emerald-400" /> PostgreSQL / Supabase Migration Script (Full Setup)
+                </h3>
+                <p className="text-xs text-slate-400">
+                  สคริปต์สร้างตาราง <code>telegram_settings</code>, <code>telegram_notification_logs</code>, <code>notification_queue</code>, SQL Functions และ Database Triggers
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopyQuickFixSql}
+                  className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all flex items-center gap-1.5"
+                >
+                  {copiedQuickFix ? <Check size={15} /> : <Zap size={15} />}
+                  Quick Fix SQL
+                </button>
+                <button
+                  onClick={handleCopySql}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all flex items-center gap-2"
+                >
+                  {copiedSql ? <Check size={16} /> : <Copy size={16} />}
+                  {copiedSql ? 'คัดลอกแล้ว!' : 'คัดลอก Full Script'}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-black/50 p-4 rounded-2xl border border-slate-800 overflow-x-auto max-h-[500px]">
+              <pre className="text-emerald-400 leading-relaxed text-[11px] whitespace-pre-wrap">
+                {TELEGRAM_SQL_SETUP_SCRIPT}
+              </pre>
+            </div>
           </div>
         </div>
       )}

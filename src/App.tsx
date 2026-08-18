@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AfterSalesView } from './components/AfterSalesView';
 import { ActivitiesView } from './components/ActivitiesView';
 import { CalendarView } from './components/CalendarView';
@@ -9,7 +9,7 @@ import { CustomerListView } from './components/CustomerListView';
 import { CustomerProfileView } from './components/CustomerProfileView';
 import { DashboardView } from './components/DashboardView';
 import { ExportModal } from './components/ExportModal';
-import { Header } from './components/Header';
+import { AVAILABLE_USERS, Header } from './components/Header';
 import { LeadsKanbanView } from './components/LeadsKanbanView';
 import { MobileAppGrid } from './components/MobileAppGrid';
 import { MobileBottomNav } from './components/MobileBottomNav';
@@ -55,14 +55,17 @@ export default function App() {
   const [supabaseConnected, setSupabaseConnected] = useState<boolean>(true);
   const [tableMissing, setTableMissing] = useState<boolean>(false);
 
-  // User Profile
-  const [currentUser] = useState<UserProfile>({
-    id: 'USER-001',
-    name: 'คุณสมชาย ใจดี',
-    role: 'SALES',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
-    salesOwnerTag: 'คุณสมชาย (Sales A)',
-  });
+  // User Profile State (Starts with Sales A by default or customizable)
+  const [currentUser, setCurrentUser] = useState<UserProfile>(AVAILABLE_USERS[0]);
+
+  const handleSwitchUser = (newUser: UserProfile) => {
+    setCurrentUser(newUser);
+    if (newUser.role === 'SALES' && newUser.salesOwnerTag) {
+      setSelectedSalesOwner(newUser.salesOwnerTag);
+    } else {
+      setSelectedSalesOwner('ALL');
+    }
+  };
 
   // Modal Control States
   const [isCreateCustomerOpen, setIsCreateCustomerOpen] = useState(false);
@@ -255,6 +258,8 @@ export default function App() {
 
     setOrders((prev) => [newOrd, ...prev]);
 
+    const isTester = data.orderType === 'TESTER' || (data.productName && data.productName.includes('เทสเตอร์'));
+
     // Update customer purchases and repeat order status
     setCustomers((prev) =>
       prev.map((c) => {
@@ -278,9 +283,11 @@ export default function App() {
             totalOrdersCount: newOrdersCount,
             lastOrderDate: data.orderDate,
             lastDeliveryDate: data.deliveryDate,
-            nextReorderDate: data.nextReorderDate,
+            nextReorderDate: isTester ? c.nextReorderDate : data.nextReorderDate,
+            nextFollowUpDate: isTester ? data.testerFollowUpDate || c.nextFollowUpDate : c.nextFollowUpDate,
+            nextAction: isTester ? '🧪 ติดตามผลหลังทดลองใช้เทสเตอร์ เพื่อชวนสั่งผลิตแบรนด์' : c.nextAction,
             followUpStartDate: data.followUpStartDate,
-            repeatStatus: 'UPCOMING',
+            repeatStatus: isTester ? c.repeatStatus : 'UPCOMING',
             updatedAt: new Date().toISOString().split('T')[0],
           };
         }
@@ -296,9 +303,11 @@ export default function App() {
               status: 'WON',
               lastOrderDate: data.orderDate,
               lastDeliveryDate: data.deliveryDate,
-              nextReorderDate: data.nextReorderDate,
+              nextReorderDate: isTester ? prev.nextReorderDate : data.nextReorderDate,
+              nextFollowUpDate: isTester ? data.testerFollowUpDate || prev.nextFollowUpDate : prev.nextFollowUpDate,
+              nextAction: isTester ? '🧪 ติดตามผลหลังทดลองใช้เทสเตอร์ เพื่อชวนสั่งผลิตแบรนด์' : prev.nextAction,
               followUpStartDate: data.followUpStartDate,
-              repeatStatus: 'UPCOMING',
+              repeatStatus: isTester ? prev.repeatStatus : 'UPCOMING',
               updatedAt: new Date().toISOString().split('T')[0],
             }
           : null
@@ -401,6 +410,36 @@ export default function App() {
     }
   };
 
+  // Calculate effective sales owner filter
+  const effectiveSalesOwner =
+    currentUser.role === 'SALES'
+      ? currentUser.salesOwnerTag || currentUser.name
+      : selectedSalesOwner;
+
+  const filteredCustomers = useMemo(() => {
+    if (effectiveSalesOwner === 'ALL') return customers || [];
+    return (customers || []).filter(
+      (c) =>
+        c.salesOwner === effectiveSalesOwner ||
+        (c.salesOwner && c.salesOwner.includes(effectiveSalesOwner))
+    );
+  }, [customers, effectiveSalesOwner]);
+
+  const filteredActivities = useMemo(() => {
+    if (effectiveSalesOwner === 'ALL') return activities || [];
+    return (activities || []).filter(
+      (a) =>
+        a.salesOwner === effectiveSalesOwner ||
+        (a.salesOwner && a.salesOwner.includes(effectiveSalesOwner))
+    );
+  }, [activities, effectiveSalesOwner]);
+
+  const filteredOrders = useMemo(() => {
+    if (effectiveSalesOwner === 'ALL') return orders || [];
+    const validCustomerIds = new Set(filteredCustomers.map((c) => c.id));
+    return (orders || []).filter((o) => validCustomerIds.has(o.customerId));
+  }, [orders, filteredCustomers, effectiveSalesOwner]);
+
   // Filter activities and documents for selected customer
   const customerActivities = selectedCustomer
     ? (activities || []).filter((a) => a.customerId === selectedCustomer.id)
@@ -415,13 +454,13 @@ export default function App() {
     ? (notes || []).filter((n) => n.customerId === selectedCustomer.id)
     : [];
 
-  const todayCount = (customers || []).filter(
+  const todayCount = (filteredCustomers || []).filter(
     (c) => c.nextFollowUpDate === '2026-07-30' || c.status === 'FOLLOW_UP'
   ).length;
-  const overdueCount = (customers || []).filter(
+  const overdueCount = (filteredCustomers || []).filter(
     (c) => c.status === 'OVERDUE' || (c.nextFollowUpDate < '2026-07-30' && c.status !== 'WON' && c.status !== 'LOST')
   ).length;
-  const dueRepeatCount = (customers || []).filter(
+  const dueRepeatCount = (filteredCustomers || []).filter(
     (c) => c.repeatStatus === 'DUE' || c.repeatStatus === 'OVERDUE'
   ).length;
 
@@ -435,7 +474,7 @@ export default function App() {
         setCurrentTab={setActiveTab}
         collapsed={sidebarCollapsed}
         setCollapsed={setSidebarCollapsed}
-        customerCount={(customers || []).length}
+        customerCount={(filteredCustomers || []).length}
         todayCount={todayCount}
         overdueCount={overdueCount}
         dueRepeatCount={dueRepeatCount}
@@ -452,11 +491,12 @@ export default function App() {
           onMarkNotificationsRead={handleMarkNotificationsRead}
           currentUser={currentUser}
           user={currentUser}
+          onSwitchUser={handleSwitchUser}
           selectedSalesOwner={selectedSalesOwner}
           setSelectedSalesOwner={setSelectedSalesOwner}
           dateRange={dateRange}
           setDateRange={setDateRange}
-          customers={customers}
+          customers={filteredCustomers}
           onSelectCustomer={handleSelectCustomer}
           onOpenCreateCustomer={() => setIsCreateCustomerOpen(true)}
           onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
@@ -498,7 +538,7 @@ export default function App() {
               onOpenCreateCustomer={() => setIsCreateCustomerOpen(true)}
               onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
               onOpenCreateOrder={() => setIsCreateOrderOpen(true)}
-              customerCount={(customers || []).length}
+              customerCount={(filteredCustomers || []).length}
               todayCount={todayCount}
               overdueCount={overdueCount}
               dueRepeatCount={dueRepeatCount}
@@ -513,9 +553,9 @@ export default function App() {
           {/* 1. Dashboard View */}
           {activeTab === 'DASHBOARD' && (
             <DashboardView
-              customers={customers}
-              activities={activities}
-              orders={orders}
+              customers={filteredCustomers}
+              activities={filteredActivities}
+              orders={filteredOrders}
               onSelectCustomer={handleSelectCustomer}
               onFilterStatus={handleFilterCustomerStatus}
               onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
@@ -526,7 +566,7 @@ export default function App() {
           {/* 2. Customer List View */}
           {activeTab === 'CUSTOMERS' && (
             <CustomerListView
-              customers={customers}
+              customers={filteredCustomers}
               initialStatusFilter={statusFilter}
               onSelectCustomer={handleSelectCustomer}
               onOpenCreateCustomer={() => setIsCreateCustomerOpen(true)}
@@ -561,8 +601,8 @@ export default function App() {
           {/* 4. Activities Log View */}
           {activeTab === 'ACTIVITIES' && (
             <ActivitiesView
-              activities={activities}
-              customers={customers}
+              activities={filteredActivities}
+              customers={filteredCustomers}
               onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
               onSelectCustomer={handleSelectCustomer}
             />
@@ -571,7 +611,7 @@ export default function App() {
           {/* 5. Calendar View */}
           {activeTab === 'CALENDAR' && (
             <CalendarView
-              customers={customers}
+              customers={filteredCustomers}
               onSelectCustomer={handleSelectCustomer}
               onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
             />
@@ -580,7 +620,7 @@ export default function App() {
           {/* 6. Leads Kanban View */}
           {activeTab === 'LEADS' && (
             <LeadsKanbanView
-              customers={customers}
+              customers={filteredCustomers}
               onSelectCustomer={handleSelectCustomer}
               onUpdateStatus={async (cust, newSt) => {
                 setCustomers((prev) =>
@@ -601,8 +641,8 @@ export default function App() {
           {/* 7. Orders & Delivery View */}
           {activeTab === 'ORDERS' && (
             <OrdersView
-              orders={orders}
-              customers={customers}
+              orders={filteredOrders}
+              customers={filteredCustomers}
               onOpenCreateOrder={() => setIsCreateOrderOpen(true)}
               onSelectCustomer={handleSelectCustomer}
             />
@@ -611,7 +651,7 @@ export default function App() {
           {/* 8. After Sales View */}
           {activeTab === 'AFTER_SALES' && (
             <AfterSalesView
-              customers={customers}
+              customers={filteredCustomers}
               onSelectCustomer={handleSelectCustomer}
               onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
             />
@@ -620,7 +660,7 @@ export default function App() {
           {/* 9. Repeat Order CRM View */}
           {activeTab === 'REPEAT_ORDERS' && (
             <RepeatOrderView
-              customers={customers}
+              customers={filteredCustomers}
               onSelectCustomer={handleSelectCustomer}
               onOpenCreateOrder={(c) => {
                 setSelectedCustomer(c);
@@ -632,7 +672,7 @@ export default function App() {
           {/* 10. Reports View */}
           {activeTab === 'REPORTS' && (
             <ReportsView
-              customers={customers}
+              customers={filteredCustomers}
               onExportData={(type) => setExportModal({ isOpen: true, type })}
             />
           )}

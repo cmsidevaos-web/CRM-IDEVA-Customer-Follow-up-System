@@ -1,3 +1,131 @@
+export const TELEGRAM_QUICK_FIX_SCRIPT = `-- ====================================================================
+-- QUICK FIX FOR MISSING notification_queue & TRIGGERS IN SUPABASE
+-- Run this in Supabase SQL Editor to instantly fix Order/Customer creation
+-- ====================================================================
+
+-- 1. Enable UUID Extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- 2. Create Topics Table if not exists
+CREATE TABLE IF NOT EXISTS public.telegram_topics (
+    topic_key TEXT PRIMARY KEY,
+    topic_name TEXT NOT NULL,
+    thread_id BIGINT NOT NULL,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed topic mappings
+INSERT INTO public.telegram_topics (topic_key, topic_name, thread_id)
+VALUES 
+    ('follow_up', '📋 Follow-up', 2),
+    ('quotation', '💰 Quotation', 4),
+    ('orders', '📦 Orders', 7),
+    ('repeat_orders', '🔁 Repeat Orders', 8),
+    ('overdue', '🔴 Overdue', 9),
+    ('won_deals', '🏆 Won Deals', 10)
+ON CONFLICT (topic_key) DO UPDATE 
+SET thread_id = EXCLUDED.thread_id, topic_name = EXCLUDED.topic_name;
+
+-- 3. Create Notification Queue Table
+CREATE TABLE IF NOT EXISTS public.notification_queue (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    notification_type VARCHAR(50) NOT NULL,
+    topic_key VARCHAR(50) NOT NULL,
+    customer_id VARCHAR(50),
+    order_id VARCHAR(50),
+    follow_up_id VARCHAR(50),
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status VARCHAR(20) DEFAULT 'pending',
+    retry_count INT DEFAULT 0,
+    next_retry_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_queue_status_retry ON public.notification_queue(status, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_topic ON public.notification_queue(topic_key);
+
+-- 4. Create Safe Notification Function (Will never crash parent transactions)
+CREATE OR REPLACE FUNCTION public.create_notification(
+    p_notification_type VARCHAR,
+    p_topic_key VARCHAR,
+    p_payload JSONB,
+    p_customer_id VARCHAR DEFAULT NULL,
+    p_order_id VARCHAR DEFAULT NULL,
+    p_follow_up_id VARCHAR DEFAULT NULL
+) RETURNS UUID AS $$
+DECLARE
+    v_queue_id UUID;
+BEGIN
+    BEGIN
+        INSERT INTO public.notification_queue (
+            notification_type,
+            topic_key,
+            customer_id,
+            order_id,
+            follow_up_id,
+            payload,
+            status,
+            retry_count,
+            next_retry_at
+        ) VALUES (
+            p_notification_type,
+            p_topic_key,
+            p_customer_id,
+            p_order_id,
+            p_follow_up_id,
+            p_payload,
+            'pending',
+            0,
+            CURRENT_TIMESTAMP
+        ) RETURNING id INTO v_queue_id;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'create_notification skipped queue insert: %', SQLERRM;
+        RETURN NULL;
+    END;
+
+    RETURN v_queue_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 5. Safe Order Trigger Function
+CREATE OR REPLACE FUNCTION public.trg_order_telegram_notify()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_cust RECORD;
+    v_payload JSONB;
+BEGIN
+    BEGIN
+        SELECT company_name, sales_owner INTO v_cust
+        FROM public.customers WHERE id = NEW.customer_id;
+
+        v_payload := jsonb_build_object(
+            'companyName', COALESCE(v_cust.company_name, NEW.customer_name, 'ลูกค้า'),
+            'orderId', NEW.id,
+            'totalAmount', NEW.total_amount,
+            'salesOwner', COALESCE(v_cust.sales_owner, 'Sales'),
+            'deliveryDate', NEW.delivery_date,
+            'closedDate', CURRENT_DATE,
+            'customerId', NEW.customer_id
+        );
+
+        PERFORM public.create_notification('order_created', 'orders', v_payload, NEW.customer_id, NEW.id::text, NULL);
+        PERFORM public.create_notification('customer_won', 'won_deals', v_payload, NEW.customer_id, NEW.id::text, NULL);
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'trg_order_telegram_notify caught error: %', SQLERRM;
+    END;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_order_telegram ON public.orders;
+CREATE TRIGGER trg_order_telegram
+AFTER INSERT ON public.orders
+FOR EACH ROW EXECUTE FUNCTION public.trg_order_telegram_notify();
+`;
+
 export const TELEGRAM_SQL_SETUP_SCRIPT = `-- ====================================================================
 -- SUPABASE + TELEGRAM NOTIFICATION ENGINE (PRODUCTION-READY DDL)
 -- Target: PostgreSQL / Supabase
@@ -59,7 +187,7 @@ SET thread_id = EXCLUDED.thread_id, topic_name = EXCLUDED.topic_name;
 CREATE TABLE IF NOT EXISTS public.notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     notification_type VARCHAR(50) NOT NULL,
-    topic_key VARCHAR(50) NOT NULL REFERENCES public.telegram_topics(topic_key) ON DELETE CASCADE,
+    topic_key VARCHAR(50) NOT NULL,
     customer_id VARCHAR(50),
     order_id VARCHAR(50),
     follow_up_id VARCHAR(50),
@@ -94,7 +222,7 @@ CREATE INDEX IF NOT EXISTS idx_telegram_logs_created ON public.telegram_notifica
 
 -- 2. SQL FUNCTIONS
 
--- Function 2.1: create_notification()
+-- Function 2.1: create_notification() (Safe insertion)
 CREATE OR REPLACE FUNCTION public.create_notification(
     p_notification_type VARCHAR,
     p_topic_key VARCHAR,
@@ -106,27 +234,32 @@ CREATE OR REPLACE FUNCTION public.create_notification(
 DECLARE
     v_queue_id UUID;
 BEGIN
-    INSERT INTO public.notification_queue (
-        notification_type,
-        topic_key,
-        customer_id,
-        order_id,
-        follow_up_id,
-        payload,
-        status,
-        retry_count,
-        next_retry_at
-    ) VALUES (
-        p_notification_type,
-        p_topic_key,
-        p_customer_id,
-        p_order_id,
-        p_follow_up_id,
-        p_payload,
-        'pending',
-        0,
-        CURRENT_TIMESTAMP
-    ) RETURNING id INTO v_queue_id;
+    BEGIN
+        INSERT INTO public.notification_queue (
+            notification_type,
+            topic_key,
+            customer_id,
+            order_id,
+            follow_up_id,
+            payload,
+            status,
+            retry_count,
+            next_retry_at
+        ) VALUES (
+            p_notification_type,
+            p_topic_key,
+            p_customer_id,
+            p_order_id,
+            p_follow_up_id,
+            p_payload,
+            'pending',
+            0,
+            CURRENT_TIMESTAMP
+        ) RETURNING id INTO v_queue_id;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'create_notification skipped queue insert: %', SQLERRM;
+        RETURN NULL;
+    END;
 
     RETURN v_queue_id;
 END;
@@ -182,12 +315,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 -- Function 2.4: retry_failed_notifications()
--- Exponential backoff:
--- Attempt 1: 1 min
--- Attempt 2: 5 min
--- Attempt 3: 15 min
--- Attempt 4: 30 min
--- Attempt 5: 60 min (Max 5 attempts)
 CREATE OR REPLACE FUNCTION public.retry_failed_notifications()
 RETURNS INT AS $$
 DECLARE
@@ -228,69 +355,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
--- Function 2.6: send_daily_summary()
-CREATE OR REPLACE FUNCTION public.send_daily_summary()
-RETURNS UUID AS $$
-DECLARE
-    v_total_customers INT;
-    v_today_followup INT;
-    v_overdue INT;
-    v_quotations INT;
-    v_won_today INT;
-    v_repeat_due INT;
-    v_payload JSONB;
-    v_queue_id UUID;
-BEGIN
-    SELECT COUNT(*) INTO v_total_customers FROM public.customers;
-    SELECT COUNT(*) INTO v_today_followup FROM public.follow_ups WHERE DATE(follow_up_date) = CURRENT_DATE;
-    SELECT COUNT(*) INTO v_overdue FROM public.follow_ups WHERE DATE(follow_up_date) < CURRENT_DATE AND status != 'completed';
-    SELECT COUNT(*) INTO v_quotations FROM public.quotations WHERE DATE(created_at) = CURRENT_DATE;
-    SELECT COUNT(*) INTO v_won_today FROM public.orders WHERE DATE(created_at) = CURRENT_DATE;
-    SELECT COUNT(*) INTO v_repeat_due FROM public.customers WHERE repeat_status IN ('DUE', 'OVERDUE');
-
-    v_payload := jsonb_build_object(
-        'title', '📊 CRM DAILY SUMMARY',
-        'totalCustomers', v_total_customers,
-        'todayFollowUp', v_today_followup,
-        'overdue', v_overdue,
-        'quotation', v_quotations,
-        'wonToday', v_won_today,
-        'repeatDue', v_repeat_due,
-        'expectedRevenue', 750000
-    );
-
-    v_queue_id := public.create_notification('daily_summary', 'follow_up', v_payload);
-    RETURN v_queue_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-
--- Function 2.7: send_manager_summary()
-CREATE OR REPLACE FUNCTION public.send_manager_summary()
-RETURNS UUID AS $$
-DECLARE
-    v_overdue_count INT;
-    v_at_risk_count INT;
-    v_payload JSONB;
-    v_queue_id UUID;
-BEGIN
-    SELECT COUNT(*) INTO v_overdue_count FROM public.follow_ups WHERE status != 'completed' AND DATE(follow_up_date) < CURRENT_DATE;
-    SELECT COUNT(*) INTO v_at_risk_count FROM public.customers WHERE risk_status = 'HIGH';
-
-    v_payload := jsonb_build_object(
-        'title', '🚨 MANAGER ALERT SUMMARY',
-        'overdueCount', v_overdue_count,
-        'atRiskCount', v_at_risk_count,
-        'alertMessage', 'พบลูกค้ากลุ่มเสี่ยงและติดตามเกินกำหนดสะสม กรุณาเร่งรัดทีมขาย'
-    );
-
-    v_queue_id := public.create_notification('manager_alert', 'overdue', v_payload);
-    RETURN v_queue_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-
--- 3. TRIGGERS
+-- 3. SAFE DATABASE TRIGGERS
 
 -- Trigger 3.1: Follow-up & Overdue Trigger
 CREATE OR REPLACE FUNCTION public.trg_followup_telegram_notify()
@@ -299,33 +364,37 @@ DECLARE
     v_cust RECORD;
     v_payload JSONB;
 BEGIN
-    SELECT company_name, contact_name, phone, sales_owner INTO v_cust
-    FROM public.customers WHERE id = NEW.customer_id;
+    BEGIN
+        SELECT company_name, contact_name, phone, sales_owner INTO v_cust
+        FROM public.customers WHERE id = NEW.customer_id;
 
-    IF NEW.status = 'OVERDUE' OR (NEW.follow_up_date < CURRENT_DATE AND NEW.status != 'completed') THEN
-        v_payload := jsonb_build_object(
-            'companyName', v_cust.company_name,
-            'contactName', v_cust.contact_name,
-            'phone', v_cust.phone,
-            'nextFollowUpDate', NEW.follow_up_date,
-            'overdueDays', GREATEST(1, (CURRENT_DATE - NEW.follow_up_date)),
-            'salesOwner', v_cust.sales_owner,
-            'nextAction', NEW.next_action,
-            'customerId', NEW.customer_id
-        );
-        PERFORM public.create_notification('overdue', 'overdue', v_payload, NEW.customer_id, NULL, NEW.id::text);
-    ELSIF NEW.follow_up_date = CURRENT_DATE THEN
-        v_payload := jsonb_build_object(
-            'companyName', v_cust.company_name,
-            'contactName', v_cust.contact_name,
-            'phone', v_cust.phone,
-            'nextFollowUpDate', NEW.follow_up_date,
-            'salesOwner', v_cust.sales_owner,
-            'nextAction', NEW.next_action,
-            'customerId', NEW.customer_id
-        );
-        PERFORM public.create_notification('follow_up_today', 'follow_up', v_payload, NEW.customer_id, NULL, NEW.id::text);
-    END IF;
+        IF NEW.status = 'OVERDUE' OR (NEW.follow_up_date < CURRENT_DATE AND NEW.status != 'completed') THEN
+            v_payload := jsonb_build_object(
+                'companyName', COALESCE(v_cust.company_name, 'ลูกค้า'),
+                'contactName', COALESCE(v_cust.contact_name, ''),
+                'phone', COALESCE(v_cust.phone, ''),
+                'nextFollowUpDate', NEW.follow_up_date,
+                'overdueDays', GREATEST(1, (CURRENT_DATE - NEW.follow_up_date)),
+                'salesOwner', COALESCE(v_cust.sales_owner, 'Sales'),
+                'nextAction', COALESCE(NEW.next_action, ''),
+                'customerId', NEW.customer_id
+            );
+            PERFORM public.create_notification('overdue', 'overdue', v_payload, NEW.customer_id, NULL, NEW.id::text);
+        ELSIF NEW.follow_up_date = CURRENT_DATE THEN
+            v_payload := jsonb_build_object(
+                'companyName', COALESCE(v_cust.company_name, 'ลูกค้า'),
+                'contactName', COALESCE(v_cust.contact_name, ''),
+                'phone', COALESCE(v_cust.phone, ''),
+                'nextFollowUpDate', NEW.follow_up_date,
+                'salesOwner', COALESCE(v_cust.sales_owner, 'Sales'),
+                'nextAction', COALESCE(NEW.next_action, ''),
+                'customerId', NEW.customer_id
+            );
+            PERFORM public.create_notification('follow_up_today', 'follow_up', v_payload, NEW.customer_id, NULL, NEW.id::text);
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'trg_followup_telegram_notify error: %', SQLERRM;
+    END;
 
     RETURN NEW;
 END;
@@ -337,28 +406,32 @@ AFTER INSERT OR UPDATE ON public.follow_ups
 FOR EACH ROW EXECUTE FUNCTION public.trg_followup_telegram_notify();
 
 
--- Trigger 3.2: Order & Won Deals Trigger
+-- Trigger 3.2: Order & Won Deals Trigger (Protected)
 CREATE OR REPLACE FUNCTION public.trg_order_telegram_notify()
 RETURNS TRIGGER AS $$
 DECLARE
     v_cust RECORD;
     v_payload JSONB;
 BEGIN
-    SELECT company_name, sales_owner INTO v_cust
-    FROM public.customers WHERE id = NEW.customer_id;
+    BEGIN
+        SELECT company_name, sales_owner INTO v_cust
+        FROM public.customers WHERE id = NEW.customer_id;
 
-    v_payload := jsonb_build_object(
-        'companyName', v_cust.company_name,
-        'orderId', NEW.id,
-        'totalAmount', NEW.total_amount,
-        'salesOwner', v_cust.sales_owner,
-        'deliveryDate', NEW.delivery_date,
-        'closedDate', CURRENT_DATE,
-        'customerId', NEW.customer_id
-    );
+        v_payload := jsonb_build_object(
+            'companyName', COALESCE(v_cust.company_name, NEW.customer_name, 'ลูกค้า'),
+            'orderId', NEW.id,
+            'totalAmount', NEW.total_amount,
+            'salesOwner', COALESCE(v_cust.sales_owner, 'Sales'),
+            'deliveryDate', NEW.delivery_date,
+            'closedDate', CURRENT_DATE,
+            'customerId', NEW.customer_id
+        );
 
-    PERFORM public.create_notification('order_created', 'orders', v_payload, NEW.customer_id, NEW.id::text, NULL);
-    PERFORM public.create_notification('customer_won', 'won_deals', v_payload, NEW.customer_id, NEW.id::text, NULL);
+        PERFORM public.create_notification('order_created', 'orders', v_payload, NEW.customer_id, NEW.id::text, NULL);
+        PERFORM public.create_notification('customer_won', 'won_deals', v_payload, NEW.customer_id, NEW.id::text, NULL);
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'trg_order_telegram_notify error: %', SQLERRM;
+    END;
 
     RETURN NEW;
 END;
@@ -370,23 +443,28 @@ AFTER INSERT ON public.orders
 FOR EACH ROW EXECUTE FUNCTION public.trg_order_telegram_notify();
 
 
--- Trigger 3.3: Customer Status Won Trigger
+-- Trigger 3.3: Customer Status Won Trigger (Protected)
 CREATE OR REPLACE FUNCTION public.trg_customer_won_telegram_notify()
 RETURNS TRIGGER AS $$
 DECLARE
     v_payload JSONB;
 BEGIN
-    IF (NEW.status = 'WON' OR NEW.status = 'won') AND (OLD.status IS NULL OR OLD.status != NEW.status) THEN
-        v_payload := jsonb_build_object(
-            'companyName', NEW.company_name,
-            'contactName', NEW.contact_name,
-            'salesOwner', NEW.sales_owner,
-            'dealValue', NEW.total_purchases,
-            'closedDate', CURRENT_DATE,
-            'customerId', NEW.id
-        );
-        PERFORM public.create_notification('customer_won', 'won_deals', v_payload, NEW.id, NULL, NULL);
-    END IF;
+    BEGIN
+        IF (NEW.status = 'WON' OR NEW.status = 'won') AND (OLD.status IS NULL OR OLD.status != NEW.status) THEN
+            v_payload := jsonb_build_object(
+                'companyName', NEW.company_name,
+                'contactName', NEW.contact_name,
+                'salesOwner', NEW.sales_owner,
+                'dealValue', NEW.total_purchases,
+                'closedDate', CURRENT_DATE,
+                'customerId', NEW.id
+            );
+            PERFORM public.create_notification('customer_won', 'won_deals', v_payload, NEW.id, NULL, NULL);
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'trg_customer_won_telegram_notify error: %', SQLERRM;
+    END;
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

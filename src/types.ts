@@ -1,5 +1,6 @@
 export type CustomerStatus = 
   | 'NEW'
+  | 'EXISTING'
   | 'CONTACTED'
   | 'FOLLOW_UP'
   | 'QUOTATION_SENT'
@@ -24,6 +25,7 @@ export type CustomerTier =
 export type ActivityType = 
   | 'CALL'
   | 'LINE'
+  | 'FACEBOOK'
   | 'EMAIL'
   | 'MEETING'
   | 'SITE_VISIT'
@@ -87,10 +89,14 @@ export interface Activity {
   createdAt: string;
 }
 
+export type OrderType = 'TESTER' | 'BRAND_PRODUCTION';
+
 export interface Order {
   id: string;
   customerId: string;
   customerName: string;
+  orderType?: OrderType; // 'TESTER' (เทสเตอร์ทดลองใช้) | 'BRAND_PRODUCTION' (สั่งผลิตสร้างแบรนด์)
+  testerFollowUpDate?: string; // วันที่นัดติดตามผลทดลองใช้ สำหรับเทสเตอร์
   orderDate: string;
   deliveryDate: string;
   productName: string;
@@ -151,6 +157,8 @@ export interface UserProfile {
   role: 'ADMIN' | 'MANAGER' | 'SALES' | 'VIEWER';
   email: string;
   avatarUrl?: string;
+  avatar?: string;
+  salesOwnerTag?: string;
 }
 
 export interface TelegramTopic {

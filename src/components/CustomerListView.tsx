@@ -74,6 +74,8 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
     switch (status) {
       case 'NEW':
         return <span className="bg-slate-100 text-slate-700 font-bold px-2.5 py-1 rounded-md text-xs">ลูกค้าใหม่ (New)</span>;
+      case 'EXISTING':
+        return <span className="bg-teal-100 text-teal-800 font-bold px-2.5 py-1 rounded-md text-xs">ลูกค้าเก่า (Existing)</span>;
       case 'CONTACTED':
         return <span className="bg-blue-100 text-blue-700 font-bold px-2.5 py-1 rounded-md text-xs">ติดต่อแล้ว (Contacted)</span>;
       case 'FOLLOW_UP':
@@ -154,6 +156,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
           >
             <option value="ALL">ทั้งหมด</option>
             <option value="NEW">New (ลูกค้าใหม่)</option>
+            <option value="EXISTING">Existing (ลูกค้าเก่า)</option>
             <option value="CONTACTED">Contacted (ติดต่อแล้ว)</option>
             <option value="FOLLOW_UP">Follow-up (กำลังติดตาม)</option>
             <option value="QUOTATION_SENT">Quotation Sent (ส่งใบเสนอราคา)</option>
