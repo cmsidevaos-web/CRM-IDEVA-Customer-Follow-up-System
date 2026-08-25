@@ -84,7 +84,7 @@ export class CustomerRepository {
    */
   async findById(id: string): Promise<Customer | null> {
     try {
-      const { data, error } = await supabase.from('customers').select('*').eq('id', id).single();
+      const { data, error } = await supabase.from('customers').select('*').eq('id', id).maybeSingle();
       if (error || !data) return null;
       return customerFromDb(data);
     } catch (err) {
@@ -98,26 +98,63 @@ export class CustomerRepository {
    */
   async save(customer: Customer): Promise<Customer> {
     const dbRow = customerToDb(customer);
-    const { data, error } = await supabase.from('customers').upsert(dbRow).select().single();
-    if (error) {
-      console.error('[CustomerRepository.save error]:', error.message);
-      throw new Error(`Failed to save customer: ${error.message}`);
+
+    // 1. Try Upsert with onConflict on 'id'
+    const { data, error } = await supabase
+      .from('customers')
+      .upsert(dbRow, { onConflict: 'id' })
+      .select();
+
+    if (!error && data && data.length > 0) {
+      return customerFromDb(data[0]);
     }
-    return customerFromDb(data || dbRow);
+
+    // 2. If upsert had issue or returned empty, try direct Update
+    const { data: updateData, error: updateError } = await supabase
+      .from('customers')
+      .update(dbRow)
+      .eq('id', customer.id)
+      .select();
+
+    if (!updateError && updateData && updateData.length > 0) {
+      return customerFromDb(updateData[0]);
+    }
+
+    // 3. If update returned empty, try Insert
+    const { data: insertData, error: insertError } = await supabase
+      .from('customers')
+      .insert(dbRow)
+      .select();
+
+    if (!insertError && insertData && insertData.length > 0) {
+      return customerFromDb(insertData[0]);
+    }
+
+    if (error || updateError || insertError) {
+      const errMsg = error?.message || updateError?.message || insertError?.message || 'Database error';
+      console.error('[CustomerRepository.save error]:', errMsg, { dbRow });
+      throw new Error(`Failed to save customer to Supabase: ${errMsg}`);
+    }
+
+    return customerFromDb(dbRow);
   }
 
   /**
    * Soft Delete or Hard Delete customer in Supabase
    */
-  async delete(id: string, softDelete = true): Promise<boolean> {
+  async delete(id: string, softDelete = false): Promise<boolean> {
     try {
       if (softDelete) {
         const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString() }).eq('id', id);
-        return !error;
-      } else {
-        const { error } = await supabase.from('customers').delete().eq('id', id);
-        return !error;
+        if (!error) return true;
       }
+      // Hard delete
+      const { error: delError } = await supabase.from('customers').delete().eq('id', id);
+      if (delError) {
+        console.error('[CustomerRepository.delete error]:', delError.message);
+        return false;
+      }
+      return true;
     } catch (err) {
       console.error('[CustomerRepository.delete exception]:', err);
       return false;

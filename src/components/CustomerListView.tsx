@@ -1,11 +1,13 @@
 import {
   Download,
+  Edit,
   Eye,
   FileSpreadsheet,
   FileText,
   Filter,
   Plus,
   Search,
+  Trash2,
   UserCheck
 } from 'lucide-react';
 import React, { useState } from 'react';
@@ -19,6 +21,8 @@ interface CustomerListViewProps {
   onOpenCreateActivity?: () => void;
   onOpenCreateActivityForCustomer?: (customer: Customer) => void;
   onOpenCreateOrder?: (customer: Customer) => void;
+  onEditCustomer?: (customer: Customer) => void;
+  onDeleteCustomer?: (customer: Customer) => void;
   onExportData?: (type: 'EXCEL' | 'PDF') => void;
 }
 
@@ -30,6 +34,8 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
   onOpenCreateActivity = () => {},
   onOpenCreateActivityForCustomer = (_c: Customer) => {},
   onOpenCreateOrder = (_c: Customer) => {},
+  onEditCustomer = (_c: Customer) => {},
+  onDeleteCustomer = (_c: Customer) => {},
   onExportData = (_type: 'EXCEL' | 'PDF') => {},
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,6 +43,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
   const [selectedSales, setSelectedSales] = useState<string>('ALL');
   const [selectedFollowupFilter, setSelectedFollowupFilter] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
+  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
   const itemsPerPage = 10;
 
   const safeCustomers = customers || [];
@@ -47,7 +54,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
       c.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.contactName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.phone.includes(searchTerm) ||
-      c.lineId.toLowerCase().includes(searchTerm.toLowerCase());
+      (c.lineId ? c.lineId.toLowerCase().includes(searchTerm.toLowerCase()) : false);
 
     const matchesStatus = selectedStatus === 'ALL' || c.status === selectedStatus;
     const matchesSales = selectedSales === 'ALL' || c.salesOwner === selectedSales;
@@ -258,8 +265,14 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
                     </td>
                     <td className="py-3.5 px-3 font-medium text-slate-700">{cust.contactName}</td>
                     <td className="py-3.5 px-3 text-slate-600">
-                      <div>{cust.phone}</div>
-                      <div className="text-[10px] text-blue-600 font-mono">{cust.lineId}</div>
+                      <div className="font-mono text-slate-800">{cust.phone}</div>
+                      {cust.lineId ? (
+                        <div className="text-[10px] text-emerald-600 font-mono flex items-center gap-0.5">
+                          <span className="font-semibold">LINE:</span> {cust.lineId}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-slate-300">-</div>
+                      )}
                     </td>
                     <td className="py-3.5 px-3">{renderStatusBadge(cust.status)}</td>
                     <td className="py-3.5 px-3">
@@ -277,11 +290,25 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
                           <Eye size={15} />
                         </button>
                         <button
+                          onClick={() => onEditCustomer(cust)}
+                          className="bg-amber-50 hover:bg-amber-100 text-amber-700 p-1.5 rounded-lg transition-colors"
+                          title="แก้ไขข้อมูลลูกค้า"
+                        >
+                          <Edit size={15} />
+                        </button>
+                        <button
                           onClick={() => onOpenCreateActivityForCustomer(cust)}
                           className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 p-1.5 rounded-lg transition-colors"
                           title="+ บันทึกกิจกรรม"
                         >
                           <Plus size={15} />
+                        </button>
+                        <button
+                          onClick={() => setDeletingCustomer(cust)}
+                          className="bg-rose-50 hover:bg-rose-100 text-rose-600 p-1.5 rounded-lg transition-colors"
+                          title="ลบข้อมูลลูกค้า"
+                        >
+                          <Trash2 size={15} />
                         </button>
                       </div>
                     </td>
@@ -354,6 +381,57 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deletingCustomer && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in-50">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 bg-rose-100 rounded-xl">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm">ยืนยันการลบลูกค้า</h3>
+                <p className="text-[11px] text-slate-500 font-mono">ID: {deletingCustomer.id}</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+              <div className="font-bold text-slate-800">{deletingCustomer.companyName}</div>
+              <div className="text-slate-600">ผู้ติดต่อ: {deletingCustomer.contactName} | เบอร์โทร: {deletingCustomer.phone}</div>
+              {deletingCustomer.lineId && (
+                <div className="text-emerald-600 font-mono text-[11px]">LINE: {deletingCustomer.lineId}</div>
+              )}
+            </div>
+
+            <p className="text-xs text-rose-600 leading-relaxed">
+              ⚠️ การลบนี้จะนำลูกค้ารายนี้ออกจากฐานข้อมูลอย่างถาวร ยืนยันที่จะดำเนินการหรือไม่?
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDeletingCustomer(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-colors"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (deletingCustomer) {
+                    onDeleteCustomer(deletingCustomer);
+                    setDeletingCustomer(null);
+                  }
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-xs transition-all flex items-center gap-1.5"
+              >
+                <Trash2 size={14} /> ยืนยันลบลูกค้า
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

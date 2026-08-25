@@ -1,5 +1,20 @@
+export const TELEGRAM_QUEUE_TABLE_DDL = `CREATE TABLE IF NOT EXISTS public.telegram_queue (
+  id character varying(100) NOT NULL,
+  type character varying(50) NOT NULL,
+  payload jsonb NOT NULL,
+  status character varying(20) DEFAULT 'PENDING'::character varying,
+  retry_count integer DEFAULT 0,
+  next_retry_at timestamp with time zone,
+  processed_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT telegram_queue_pkey PRIMARY KEY (id)
+) TABLESPACE pg_default;
+
+CREATE INDEX IF NOT EXISTS idx_telegram_queue_status_created ON public.telegram_queue(status, created_at);
+`;
+
 export const TELEGRAM_QUICK_FIX_SCRIPT = `-- ====================================================================
--- QUICK FIX FOR MISSING notification_queue & TRIGGERS IN SUPABASE
+-- QUICK FIX FOR MISSING telegram_queue, notification_queue & ORDERS TRIGGER IN SUPABASE
 -- Run this in Supabase SQL Editor to instantly fix Order/Customer creation
 -- ====================================================================
 
@@ -27,11 +42,26 @@ VALUES
 ON CONFLICT (topic_key) DO UPDATE 
 SET thread_id = EXCLUDED.thread_id, topic_name = EXCLUDED.topic_name;
 
--- 3. Create Notification Queue Table
+-- 3. Create Telegram Queue Table
+CREATE TABLE IF NOT EXISTS public.telegram_queue (
+  id character varying(100) NOT NULL,
+  type character varying(50) NOT NULL,
+  payload jsonb NOT NULL,
+  status character varying(20) DEFAULT 'PENDING'::character varying,
+  retry_count integer DEFAULT 0,
+  next_retry_at timestamp with time zone,
+  processed_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT telegram_queue_pkey PRIMARY KEY (id)
+) TABLESPACE pg_default;
+
+CREATE INDEX IF NOT EXISTS idx_telegram_queue_status_created ON public.telegram_queue(status, created_at);
+
+-- 4. Create Notification Queue Table (for compatibility)
 CREATE TABLE IF NOT EXISTS public.notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    notification_type VARCHAR(50) NOT NULL,
-    topic_key VARCHAR(50) NOT NULL,
+    notification_type VARCHAR(50) NOT NULL DEFAULT 'ORDERS',
+    topic_key VARCHAR(50) NOT NULL DEFAULT 'orders',
     customer_id VARCHAR(50),
     order_id VARCHAR(50),
     follow_up_id VARCHAR(50),
@@ -46,7 +76,40 @@ CREATE TABLE IF NOT EXISTS public.notification_queue (
 CREATE INDEX IF NOT EXISTS idx_notification_queue_status_retry ON public.notification_queue(status, next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_notification_queue_topic ON public.notification_queue(topic_key);
 
--- 4. Create Safe Notification Function (Will never crash parent transactions)
+-- 5. Create Safe notify_order_created() Function for trg_orders_notify
+CREATE OR REPLACE FUNCTION public.notify_order_created()
+RETURNS TRIGGER AS $$
+BEGIN
+    BEGIN
+        -- Insert to telegram_queue
+        INSERT INTO public.telegram_queue (
+            id,
+            type,
+            payload,
+            status,
+            retry_count
+        ) VALUES (
+            'QUEUE-' || floor(extract(epoch from clock_timestamp()) * 1000)::text || '-' || floor(random() * 1000)::text,
+            'ORDERS',
+            jsonb_build_object(
+                'orderId', NEW.id,
+                'customerName', NEW.customer_name,
+                'productName', NEW.product_name,
+                'totalAmount', NEW.total_amount,
+                'quantity', NEW.quantity,
+                'orderDate', NEW.order_date
+            ),
+            'PENDING',
+            0
+        );
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'notify_order_created exception caught: %', SQLERRM;
+    END;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 5. Create Safe Notification Function (Will never crash parent transactions)
 CREATE OR REPLACE FUNCTION public.create_notification(
     p_notification_type VARCHAR,
     p_topic_key VARCHAR,
@@ -89,7 +152,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 5. Safe Order Trigger Function
+-- 6. Safe Order Trigger Function
 CREATE OR REPLACE FUNCTION public.trg_order_telegram_notify()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -104,6 +167,7 @@ BEGIN
             'companyName', COALESCE(v_cust.company_name, NEW.customer_name, 'ลูกค้า'),
             'orderId', NEW.id,
             'totalAmount', NEW.total_amount,
+            'quantity', NEW.quantity,
             'salesOwner', COALESCE(v_cust.sales_owner, 'Sales'),
             'deliveryDate', NEW.delivery_date,
             'closedDate', CURRENT_DATE,
@@ -124,6 +188,65 @@ DROP TRIGGER IF EXISTS trg_order_telegram ON public.orders;
 CREATE TRIGGER trg_order_telegram
 AFTER INSERT ON public.orders
 FOR EACH ROW EXECUTE FUNCTION public.trg_order_telegram_notify();
+`;
+
+export const ORDERS_TRIGGER_FIX_SQL = `-- ====================================================================
+-- SQL แก้ไข TRIGGER ตาราง ORDERS และสร้าง NOTIFICATION_QUEUE
+-- สำหรับแก้ไข Error: relation "notification_queue" does not exist
+-- ====================================================================
+
+-- 1. สร้างตาราง notification_queue
+CREATE TABLE IF NOT EXISTS public.notification_queue (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    notification_type VARCHAR(50) NOT NULL DEFAULT 'ORDERS',
+    topic_key VARCHAR(50) NOT NULL DEFAULT 'orders',
+    customer_id VARCHAR(50),
+    order_id VARCHAR(50),
+    follow_up_id VARCHAR(50),
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status VARCHAR(20) DEFAULT 'pending',
+    retry_count INT DEFAULT 0,
+    next_retry_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_queue_status_retry ON public.notification_queue(status, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_topic ON public.notification_queue(topic_key);
+
+-- 2. ปรับปรุง notify_order_created() ให้ปลอดภัย ไม่ขัดขวางการ INSERT ออเดอร์
+CREATE OR REPLACE FUNCTION public.notify_order_created()
+RETURNS TRIGGER AS $$
+BEGIN
+    BEGIN
+        INSERT INTO public.notification_queue (
+            notification_type,
+            topic_key,
+            customer_id,
+            order_id,
+            payload,
+            status
+        ) VALUES (
+            'ORDERS',
+            'orders',
+            NEW.customer_id,
+            NEW.id,
+            jsonb_build_object(
+                'orderId', NEW.id,
+                'customerName', NEW.customer_name,
+                'productName', NEW.product_name,
+                'totalAmount', NEW.total_amount,
+                'quantity', NEW.quantity,
+                'orderDate', NEW.order_date
+            ),
+            'pending'
+        );
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'notify_order_created exception caught: %', SQLERRM;
+    END;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 `;
 
 export const TELEGRAM_SQL_SETUP_SCRIPT = `-- ====================================================================

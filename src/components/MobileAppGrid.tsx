@@ -24,9 +24,17 @@ interface MobileAppGridProps {
   onOpenCreateActivity?: () => void;
   onOpenCreateOrder?: () => void;
   customerCount?: number;
+  activitiesCount?: number;
+  ordersCount?: number;
+  leadsCount?: number;
+  calendarCount?: number;
+  afterSalesCount?: number;
   todayCount?: number;
   overdueCount?: number;
   dueRepeatCount?: number;
+  reportsCount?: number;
+  manualCount?: number;
+  settingsCount?: number;
   onOpenCustomizeBottomNav?: () => void;
 }
 
@@ -36,9 +44,17 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
   onOpenCreateActivity = () => {},
   onOpenCreateOrder = () => {},
   customerCount = 0,
+  activitiesCount = 0,
+  ordersCount = 0,
+  leadsCount = 0,
+  calendarCount = 0,
+  afterSalesCount = 0,
   todayCount = 0,
   overdueCount = 0,
   dueRepeatCount = 0,
+  reportsCount = 4,
+  manualCount = 6,
+  settingsCount,
   onOpenCustomizeBottomNav,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,8 +66,8 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'ภาพรวมระบบ',
       icon: LayoutDashboard,
       gradient: 'from-blue-600 via-blue-500 to-indigo-600',
-      badge: todayCount > 0 ? todayCount : undefined,
-      badgeColor: 'bg-blue-500',
+      badge: todayCount > 0 ? todayCount : (overdueCount > 0 ? overdueCount : undefined),
+      badgeColor: overdueCount > 0 ? 'bg-rose-500' : 'bg-blue-500',
     },
     {
       id: 'CUSTOMERS' as ViewTab,
@@ -59,7 +75,7 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'รายชื่อทั้งหมด',
       icon: Users,
       gradient: 'from-indigo-600 via-indigo-500 to-blue-700',
-      badge: customerCount > 0 ? customerCount : undefined,
+      badge: customerCount,
       badgeColor: 'bg-indigo-600',
     },
     {
@@ -68,7 +84,7 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'ประวัติกิจกรรม',
       icon: Clock,
       gradient: 'from-rose-500 via-rose-600 to-red-600',
-      badge: overdueCount > 0 ? overdueCount : undefined,
+      badge: activitiesCount,
       badgeColor: 'bg-rose-500',
     },
     {
@@ -77,6 +93,8 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'กำหนดการนัดหมาย',
       icon: Calendar,
       gradient: 'from-purple-600 via-purple-500 to-indigo-600',
+      badge: calendarCount,
+      badgeColor: 'bg-purple-600',
     },
     {
       id: 'LEADS' as ViewTab,
@@ -84,6 +102,8 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'Leads Pipeline',
       icon: UserPlus,
       gradient: 'from-emerald-500 via-teal-500 to-emerald-700',
+      badge: leadsCount,
+      badgeColor: 'bg-emerald-600',
     },
     {
       id: 'ORDERS' as ViewTab,
@@ -91,6 +111,8 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'ประวัติการสั่งซื้อ',
       icon: ShoppingBag,
       gradient: 'from-amber-500 via-orange-500 to-amber-600',
+      badge: ordersCount,
+      badgeColor: 'bg-amber-600',
     },
     {
       id: 'AFTER_SALES' as ViewTab,
@@ -98,6 +120,8 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'ดูแลความพึงพอใจ',
       icon: Headphones,
       gradient: 'from-cyan-500 via-teal-500 to-blue-600',
+      badge: afterSalesCount,
+      badgeColor: 'bg-cyan-600',
     },
     {
       id: 'REPEAT_ORDERS' as ViewTab,
@@ -105,8 +129,8 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'Repeat Order CRM',
       icon: Repeat,
       gradient: 'from-amber-500 via-yellow-500 to-orange-500',
-      badge: dueRepeatCount > 0 ? dueRepeatCount : undefined,
-      badgeColor: 'bg-amber-500',
+      badge: dueRepeatCount,
+      badgeColor: dueRepeatCount > 0 ? 'bg-orange-500 font-extrabold' : 'bg-amber-600',
     },
     {
       id: 'REPORTS' as ViewTab,
@@ -114,6 +138,8 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'สถิติและวิเคราะห์',
       icon: BarChart3,
       gradient: 'from-violet-600 via-purple-600 to-indigo-700',
+      badge: reportsCount,
+      badgeColor: 'bg-violet-600',
     },
     {
       id: 'USER_MANUAL' as ViewTab,
@@ -121,6 +147,8 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'วิธีใช้งานระบบ',
       icon: BookOpen,
       gradient: 'from-slate-700 via-slate-800 to-slate-900',
+      badge: manualCount,
+      badgeColor: 'bg-slate-600',
     },
     {
       id: 'SETTINGS' as ViewTab,
@@ -128,6 +156,8 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       subtitle: 'สิทธิ์ & Supabase',
       icon: Settings,
       gradient: 'from-zinc-600 via-slate-700 to-zinc-800',
+      badge: settingsCount,
+      badgeColor: 'bg-zinc-600',
     },
   ];
 

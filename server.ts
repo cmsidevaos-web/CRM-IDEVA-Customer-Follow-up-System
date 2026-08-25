@@ -32,6 +32,7 @@ import {
   isSupabaseConnected
 } from './src/services/supabaseDataStore';
 import { orderRepository } from './src/repositories/OrderRepository';
+import { customerRepository } from './src/repositories/CustomerRepository';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -174,46 +175,74 @@ async function startServer() {
 
   // GET Customer Details (100% Supabase)
   app.get('/api/customers/:id', async (req, res) => {
-    const { data: rawCustomers } = await fetchCustomersFromSupabase();
-    const customer = rawCustomers.find((c) => c.id === req.params.id);
-    if (!customer) {
-      return res.status(404).json({ error: 'Customer not found' });
+    try {
+      const id = req.params.id;
+      let customer = await customerRepository.findById(id);
+      if (!customer) {
+        const { data: rawCustomers } = await fetchCustomersFromSupabase();
+        customer = rawCustomers.find((c) => c.id === id) || null;
+      }
+      if (!customer) {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+
+      const { data: activities } = await fetchActivitiesFromSupabase();
+      const { data: orders } = await fetchOrdersFromSupabase();
+      const docs = await fetchDocumentsFromSupabase();
+      const notes = await fetchNotesFromSupabase();
+
+      const custActivities = activities.filter((a) => a.customerId === customer!.id);
+      const custOrders = orders.filter((o) => o.customerId === customer!.id);
+      const custDocs = docs.filter((d) => d.customerId === customer!.id);
+      const custNotes = notes.filter((n) => n.customerId === customer!.id);
+
+      res.json({
+        customer,
+        activities: custActivities,
+        orders: custOrders,
+        documents: custDocs,
+        notes: custNotes,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Error fetching customer detail' });
     }
-
-    const { data: activities } = await fetchActivitiesFromSupabase();
-    const { data: orders } = await fetchOrdersFromSupabase();
-    const docs = await fetchDocumentsFromSupabase();
-    const notes = await fetchNotesFromSupabase();
-
-    const custActivities = activities.filter((a) => a.customerId === customer.id);
-    const custOrders = orders.filter((o) => o.customerId === customer.id);
-    const custDocs = docs.filter((d) => d.customerId === customer.id);
-    const custNotes = notes.filter((n) => n.customerId === customer.id);
-
-    res.json({
-      customer,
-      activities: custActivities,
-      orders: custOrders,
-      documents: custDocs,
-      notes: custNotes,
-    });
   });
 
   // CREATE Customer (100% Supabase)
   app.post('/api/customers', async (req, res) => {
     try {
       const { data: rawCustomers } = await fetchCustomersFromSupabase();
+      const nextId = req.body.id || `CUST-${String(rawCustomers.length + 1).padStart(3, '0')}`;
       const newCustomer: Customer = {
-        id: `CUST-${String(rawCustomers.length + 1).padStart(3, '0')}`,
-        ...req.body,
-        totalPurchases: req.body.totalPurchases || 0,
-        totalOrdersCount: req.body.totalOrdersCount || 0,
-        createdAt: new Date().toISOString().split('T')[0],
+        id: nextId,
+        companyName: req.body.companyName || '',
+        contactName: req.body.contactName || '',
+        phone: req.body.phone || '',
+        lineId: req.body.lineId !== undefined ? req.body.lineId : (req.body.line_id || ''),
+        email: req.body.email !== undefined ? req.body.email : (req.body.email || ''),
+        interestedProducts: req.body.interestedProducts || req.body.interested_products || '',
+        source: req.body.source || 'Facebook',
+        salesOwner: req.body.salesOwner || req.body.sales_owner || 'คุณสมชาย (Sales A)',
+        status: req.body.status || 'NEW',
+        tier: req.body.tier || 'GENERAL',
+        taxId: req.body.taxId || req.body.tax_id || '',
+        address: req.body.address || '',
+        facebook: req.body.facebook || '',
+        nextFollowUpDate: req.body.nextFollowUpDate || req.body.next_follow_up_date || new Date().toISOString().split('T')[0],
+        nextFollowUpTime: req.body.nextFollowUpTime || req.body.next_follow_up_time || '10:00',
+        nextAction: req.body.nextAction || req.body.next_action || 'โทรสอบถามข้อมูลเบื้องต้น',
+        totalPurchases: Number(req.body.totalPurchases || 0),
+        totalOrdersCount: Number(req.body.totalOrdersCount || 0),
+        avgReorderCycleDays: Number(req.body.avgReorderCycleDays || 60),
+        repeatStatus: req.body.repeatStatus || 'UPCOMING',
+        riskStatus: req.body.riskStatus || 'NORMAL',
+        createdAt: req.body.createdAt || new Date().toISOString().split('T')[0],
         updatedAt: new Date().toISOString().split('T')[0],
       };
       const saved = await upsertCustomerSupabase(newCustomer);
       res.status(201).json(saved);
     } catch (e: any) {
+      console.error('[POST /api/customers error]:', e);
       res.status(500).json({ error: e?.message || 'Error saving customer to Supabase' });
     }
   });
@@ -221,19 +250,24 @@ async function startServer() {
   // UPDATE Customer (100% Supabase)
   app.put('/api/customers/:id', async (req, res) => {
     try {
-      const { data: rawCustomers } = await fetchCustomersFromSupabase();
-      const existing = rawCustomers.find((c) => c.id === req.params.id);
-      if (!existing) return res.status(404).json({ error: 'Customer not found' });
+      const id = req.params.id;
+      let existing = await customerRepository.findById(id);
+      if (!existing) {
+        const { data: rawCustomers } = await fetchCustomersFromSupabase();
+        existing = rawCustomers.find((c) => c.id === id) || null;
+      }
 
       const updatedCustomer: Customer = {
-        ...existing,
+        ...(existing || {} as Customer),
         ...req.body,
+        id,
         updatedAt: new Date().toISOString().split('T')[0],
       };
 
       const saved = await upsertCustomerSupabase(updatedCustomer);
       res.json(saved);
     } catch (e: any) {
+      console.error('[PUT /api/customers/:id error]:', e);
       res.status(500).json({ error: e?.message || 'Error updating customer in Supabase' });
     }
   });

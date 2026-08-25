@@ -25,10 +25,18 @@ interface SidebarProps {
   collapsed?: boolean;
   setCollapsed?: (collapsed: boolean) => void;
   customerCount?: number;
-  overdueCount?: number;
-  todayCount?: number;
+  activitiesCount?: number;
+  ordersCount?: number;
+  leadsCount?: number;
+  calendarCount?: number;
+  afterSalesCount?: number;
   repeatDueCount?: number;
   dueRepeatCount?: number;
+  todayCount?: number;
+  overdueCount?: number;
+  reportsCount?: number;
+  manualCount?: number;
+  settingsCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -38,28 +46,114 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveTab,
   collapsed = false,
   setCollapsed = (_c: boolean) => {},
-  customerCount,
+  customerCount = 0,
+  activitiesCount = 0,
+  ordersCount = 0,
+  leadsCount = 0,
+  calendarCount = 0,
+  afterSalesCount = 0,
   overdueCount = 0,
   todayCount = 0,
   repeatDueCount = 0,
   dueRepeatCount,
+  reportsCount = 4,
+  manualCount = 6,
+  settingsCount,
 }) => {
   const selectedTab = activeTab || currentTab || 'DASHBOARD';
   const handleSelectTab = setActiveTab || setCurrentTab || ((_tab: ViewTab) => {});
   const activeRepeatCount = dueRepeatCount !== undefined ? dueRepeatCount : repeatDueCount;
 
   const menuItems = [
-    { id: 'DASHBOARD' as ViewTab, label: 'Dashboard', icon: LayoutDashboard, badge: todayCount > 0 ? todayCount : undefined, badgeColor: 'bg-blue-500' },
-    { id: 'CUSTOMERS' as ViewTab, label: 'Customers (ลูกค้า)', icon: Users, badge: customerCount && customerCount > 0 ? customerCount : undefined, badgeColor: 'bg-blue-600' },
-    { id: 'ACTIVITIES' as ViewTab, label: 'Activities (กิจกรรม)', icon: Clock, badge: overdueCount > 0 ? overdueCount : undefined, badgeColor: 'bg-rose-500' },
-    { id: 'CALENDAR' as ViewTab, label: 'Calendar (ปฏิทิน)', icon: Calendar },
-    { id: 'LEADS' as ViewTab, label: 'Leads (ผู้มุ่งหวัง)', icon: UserPlus },
-    { id: 'ORDERS' as ViewTab, label: 'Orders (คำสั่งซื้อ)', icon: ShoppingBag },
-    { id: 'AFTER_SALES' as ViewTab, label: 'After Sales (หลังการขาย)', icon: Headphones },
-    { id: 'REPEAT_ORDERS' as ViewTab, label: 'Repeat Orders (ซื้อซ้ำ)', icon: Repeat, badge: activeRepeatCount > 0 ? activeRepeatCount : undefined, badgeColor: 'bg-amber-500', isHighlight: true },
-    { id: 'REPORTS' as ViewTab, label: 'Reports (รายงาน)', icon: BarChart3 },
-    { id: 'USER_MANUAL' as ViewTab, label: 'คู่มือการใช้งาน', icon: BookOpen },
-    { id: 'SETTINGS' as ViewTab, label: 'Settings (ตั้งค่า)', icon: Settings },
+    {
+      id: 'DASHBOARD' as ViewTab,
+      label: 'Dashboard',
+      icon: LayoutDashboard,
+      badge: todayCount > 0 ? todayCount : (overdueCount > 0 ? overdueCount : undefined),
+      badgeColor: overdueCount > 0 ? 'bg-rose-500' : 'bg-blue-500',
+      badgeLabel: overdueCount > 0 ? 'งานเกินกำหนด' : 'งานวันนี้',
+    },
+    {
+      id: 'CUSTOMERS' as ViewTab,
+      label: 'Customers (ลูกค้า)',
+      icon: Users,
+      badge: customerCount,
+      badgeColor: 'bg-indigo-500',
+      badgeLabel: 'รายชื่อลูกค้า',
+    },
+    {
+      id: 'ACTIVITIES' as ViewTab,
+      label: 'Activities (กิจกรรม)',
+      icon: Clock,
+      badge: activitiesCount,
+      badgeColor: 'bg-rose-500',
+      badgeLabel: 'ประวัติกิจกรรม',
+    },
+    {
+      id: 'CALENDAR' as ViewTab,
+      label: 'Calendar (ปฏิทิน)',
+      icon: Calendar,
+      badge: calendarCount,
+      badgeColor: 'bg-purple-500',
+      badgeLabel: 'นัดหมาย/กำหนดการ',
+    },
+    {
+      id: 'LEADS' as ViewTab,
+      label: 'Leads (ผู้มุ่งหวัง)',
+      icon: UserPlus,
+      badge: leadsCount,
+      badgeColor: 'bg-emerald-500',
+      badgeLabel: 'ผู้มุ่งหวังใน Pipeline',
+    },
+    {
+      id: 'ORDERS' as ViewTab,
+      label: 'Orders (คำสั่งซื้อ)',
+      icon: ShoppingBag,
+      badge: ordersCount,
+      badgeColor: 'bg-amber-500',
+      badgeLabel: 'คำสั่งซื้อที่เปิดสร้าง',
+    },
+    {
+      id: 'AFTER_SALES' as ViewTab,
+      label: 'After Sales (หลังการขาย)',
+      icon: Headphones,
+      badge: afterSalesCount,
+      badgeColor: 'bg-teal-500',
+      badgeLabel: 'ลูกค้าที่ปิดการขาย',
+    },
+    {
+      id: 'REPEAT_ORDERS' as ViewTab,
+      label: 'Repeat Orders (ซื้อซ้ำ)',
+      icon: Repeat,
+      badge: activeRepeatCount,
+      badgeColor: activeRepeatCount > 0 ? 'bg-orange-500 font-extrabold ring-2 ring-orange-300/60 animate-pulse' : 'bg-amber-600',
+      isHighlight: true,
+      badgeLabel: 'รอบซื้อซ้ำ',
+    },
+    {
+      id: 'REPORTS' as ViewTab,
+      label: 'Reports (รายงาน)',
+      icon: BarChart3,
+      badge: reportsCount,
+      badgeColor: 'bg-violet-500/80',
+      badgeLabel: 'หมวดรายงาน',
+    },
+    {
+      id: 'USER_MANUAL' as ViewTab,
+      label: 'คู่มือการใช้งาน',
+      icon: BookOpen,
+      badge: manualCount,
+      badgeColor: 'bg-slate-500/80',
+      badgeLabel: 'บทเรียนคู่มือ',
+    },
+    {
+      id: 'SETTINGS' as ViewTab,
+      label: 'Settings (ตั้งค่า)',
+      icon: Settings,
+      badge: settingsCount,
+      badgeColor: 'bg-zinc-600',
+      badgeLabel: 'การตั้งค่า',
+    },
   ];
 
   return (
@@ -128,13 +222,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
 
               {!collapsed && item.badge !== undefined && (
-                <span className={`ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full text-white ${item.badgeColor}`}>
+                <span
+                  title={item.badgeLabel}
+                  className={`ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full text-white shadow-xs ${item.badgeColor}`}
+                >
                   {item.badge}
                 </span>
               )}
 
               {collapsed && item.badge !== undefined && (
-                <span className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full ${item.badgeColor}`} />
+                <span
+                  title={`${item.label}: ${item.badge} (${item.badgeLabel || ''})`}
+                  className={`absolute -top-1 -right-1 text-[9px] font-extrabold px-1 py-0.2 rounded-full text-white ${item.badgeColor} border border-[#0B3B8C] shadow-xs min-w-[16px] text-center`}
+                >
+                  {item.badge > 99 ? '99+' : item.badge}
+                </span>
               )}
             </button>
           );

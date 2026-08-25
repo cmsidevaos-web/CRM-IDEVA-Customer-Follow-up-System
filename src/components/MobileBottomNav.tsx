@@ -34,9 +34,17 @@ interface MobileBottomNavProps {
   currentTab: ViewTab;
   onSelectTab: (tab: ViewTab) => void;
   customerCount?: number;
+  activitiesCount?: number;
+  ordersCount?: number;
+  leadsCount?: number;
+  calendarCount?: number;
+  afterSalesCount?: number;
   todayCount?: number;
   overdueCount?: number;
   dueRepeatCount?: number;
+  reportsCount?: number;
+  manualCount?: number;
+  settingsCount?: number;
   onOpenCreateActivity?: () => void;
 }
 
@@ -46,9 +54,17 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   currentTab,
   onSelectTab,
   customerCount = 0,
+  activitiesCount = 0,
+  ordersCount = 0,
+  leadsCount = 0,
+  calendarCount = 0,
+  afterSalesCount = 0,
   todayCount = 0,
   overdueCount = 0,
   dueRepeatCount = 0,
+  reportsCount = 4,
+  manualCount = 6,
+  settingsCount,
 }) => {
   const [pinnedTabs, setPinnedTabs] = useState<ViewTab[]>(() => {
     try {
@@ -83,8 +99,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'แดชบอร์ด',
       icon: LayoutDashboard,
       gradient: 'from-blue-600 to-indigo-600',
-      badge: todayCount > 0 ? todayCount : undefined,
-      badgeColor: 'bg-blue-500',
+      badge: todayCount > 0 ? todayCount : (overdueCount > 0 ? overdueCount : undefined),
+      badgeColor: overdueCount > 0 ? 'bg-rose-500' : 'bg-blue-500',
     },
     {
       id: 'CUSTOMERS',
@@ -92,7 +108,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'ลูกค้า',
       icon: Users,
       gradient: 'from-indigo-600 to-blue-700',
-      badge: customerCount > 0 ? customerCount : undefined,
+      badge: customerCount,
       badgeColor: 'bg-indigo-600',
     },
     {
@@ -101,7 +117,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'ติดตามงาน',
       icon: Clock,
       gradient: 'from-rose-500 to-red-600',
-      badge: overdueCount > 0 ? overdueCount : undefined,
+      badge: activitiesCount,
       badgeColor: 'bg-rose-500',
     },
     {
@@ -110,6 +126,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'ปฏิทิน',
       icon: Calendar,
       gradient: 'from-purple-600 to-indigo-600',
+      badge: calendarCount,
+      badgeColor: 'bg-purple-600',
     },
     {
       id: 'LEADS',
@@ -117,6 +135,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'ผู้มุ่งหวัง',
       icon: UserPlus,
       gradient: 'from-emerald-500 to-teal-600',
+      badge: leadsCount,
+      badgeColor: 'bg-emerald-600',
     },
     {
       id: 'ORDERS',
@@ -124,6 +144,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'คำสั่งซื้อ',
       icon: ShoppingBag,
       gradient: 'from-amber-500 to-orange-600',
+      badge: ordersCount,
+      badgeColor: 'bg-amber-500',
     },
     {
       id: 'AFTER_SALES',
@@ -131,6 +153,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'หลังการขาย',
       icon: Headphones,
       gradient: 'from-cyan-500 to-blue-600',
+      badge: afterSalesCount,
+      badgeColor: 'bg-cyan-600',
     },
     {
       id: 'REPEAT_ORDERS',
@@ -138,8 +162,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'ซื้อซ้ำ',
       icon: Repeat,
       gradient: 'from-amber-500 to-yellow-600',
-      badge: dueRepeatCount > 0 ? dueRepeatCount : undefined,
-      badgeColor: 'bg-amber-500',
+      badge: dueRepeatCount,
+      badgeColor: dueRepeatCount > 0 ? 'bg-orange-500' : 'bg-amber-600',
     },
     {
       id: 'REPORTS',
@@ -147,6 +171,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'รายงาน',
       icon: BarChart3,
       gradient: 'from-violet-600 to-purple-700',
+      badge: reportsCount,
+      badgeColor: 'bg-violet-600',
     },
     {
       id: 'USER_MANUAL',
@@ -154,6 +180,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'คู่มือ',
       icon: BookOpen,
       gradient: 'from-slate-600 to-slate-800',
+      badge: manualCount,
+      badgeColor: 'bg-slate-600',
     },
     {
       id: 'SETTINGS',
@@ -161,6 +189,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       shortLabel: 'ตั้งค่า',
       icon: Settings,
       gradient: 'from-zinc-600 to-slate-700',
+      badge: settingsCount,
+      badgeColor: 'bg-zinc-600',
     },
   ];
 

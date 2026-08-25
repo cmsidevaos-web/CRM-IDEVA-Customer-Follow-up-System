@@ -5,6 +5,7 @@ import { CalendarView } from './components/CalendarView';
 import { CreateActivityModal } from './components/CreateActivityModal';
 import { CreateCustomerModal } from './components/CreateCustomerModal';
 import { CreateOrderModal } from './components/CreateOrderModal';
+import { EditCustomerModal } from './components/EditCustomerModal';
 import { CustomerListView } from './components/CustomerListView';
 import { CustomerProfileView } from './components/CustomerProfileView';
 import { DashboardView } from './components/DashboardView';
@@ -69,6 +70,7 @@ export default function App() {
 
   // Modal Control States
   const [isCreateCustomerOpen, setIsCreateCustomerOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [isCreateActivityOpen, setIsCreateActivityOpen] = useState(false);
   const [isCreateOrderOpen, setIsCreateOrderOpen] = useState(false);
   const [exportModal, setExportModal] = useState<{ isOpen: boolean; type: 'EXCEL' | 'PDF' }>({
@@ -187,6 +189,29 @@ export default function App() {
       }
     } catch (e) {
       console.error('Saved to local state fallback');
+    }
+  };
+
+  // Handler: Edit / Update Customer
+  const handleEditCustomer = async (updatedCustomer: Customer) => {
+    // 1. Immediate optimistic update
+    setCustomers((prev) =>
+      prev.map((c) => (c.id === updatedCustomer.id ? updatedCustomer : c))
+    );
+    if (selectedCustomer && selectedCustomer.id === updatedCustomer.id) {
+      setSelectedCustomer(updatedCustomer);
+    }
+    // 2. Persist to Supabase
+    try {
+      const saved = await apiClient.updateCustomer(updatedCustomer.id, updatedCustomer);
+      if (saved) {
+        setCustomers((prev) => prev.map((c) => (c.id === updatedCustomer.id ? saved : c)));
+        if (selectedCustomer && selectedCustomer.id === updatedCustomer.id) {
+          setSelectedCustomer(saved);
+        }
+      }
+    } catch (e) {
+      console.error('Error updating customer in Supabase:', e);
     }
   };
 
@@ -315,8 +340,13 @@ export default function App() {
     }
 
     try {
-      await apiClient.createOrder(newOrd);
-    } catch (e) {}
+      const saved = await apiClient.createOrder(newOrd);
+      if (saved && saved.id) {
+        setOrders((prev) => prev.map((o) => (o.id === newOrd.id ? { ...o, ...saved } : o)));
+      }
+    } catch (e) {
+      console.error('[Create Order Error]:', e);
+    }
   };
 
   // Handler: Update Customer Status (Direct to Supabase)
@@ -454,15 +484,28 @@ export default function App() {
     ? (notes || []).filter((n) => n.customerId === selectedCustomer.id)
     : [];
 
+  const customerCount = (filteredCustomers || []).length;
+  const activitiesCount = (filteredActivities || []).length;
+  const ordersCount = (filteredOrders || []).length;
+  const leadsCount = (filteredCustomers || []).filter((c) =>
+    ['NEW_LEAD', 'CONTACTED', 'QUOTATION', 'PROPOSAL', 'NEGOTIATION'].includes(c.status)
+  ).length;
+  const calendarCount = (filteredCustomers || []).filter((c) => Boolean(c.nextFollowUpDate)).length;
+  const afterSalesCount = (filteredCustomers || []).filter(
+    (c) => c.status === 'WON' || Number(c.totalPurchases || 0) > 0 || Number(c.totalOrdersCount || 0) > 0
+  ).length;
+
   const todayCount = (filteredCustomers || []).filter(
     (c) => c.nextFollowUpDate === '2026-07-30' || c.status === 'FOLLOW_UP'
   ).length;
   const overdueCount = (filteredCustomers || []).filter(
-    (c) => c.status === 'OVERDUE' || (c.nextFollowUpDate < '2026-07-30' && c.status !== 'WON' && c.status !== 'LOST')
+    (c) => c.status === 'OVERDUE' || (Boolean(c.nextFollowUpDate) && (c.nextFollowUpDate || '') < '2026-07-30' && c.status !== 'WON' && c.status !== 'LOST')
   ).length;
   const dueRepeatCount = (filteredCustomers || []).filter(
     (c) => c.repeatStatus === 'DUE' || c.repeatStatus === 'OVERDUE'
   ).length;
+  const reportsCount = 4;
+  const manualCount = 6;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex text-slate-900 font-sans antialiased selection:bg-blue-100 selection:text-blue-900">
@@ -474,11 +517,18 @@ export default function App() {
         setCurrentTab={setActiveTab}
         collapsed={sidebarCollapsed}
         setCollapsed={setSidebarCollapsed}
-        customerCount={(filteredCustomers || []).length}
+        customerCount={customerCount}
+        activitiesCount={activitiesCount}
+        ordersCount={ordersCount}
+        leadsCount={leadsCount}
+        calendarCount={calendarCount}
+        afterSalesCount={afterSalesCount}
         todayCount={todayCount}
         overdueCount={overdueCount}
         dueRepeatCount={dueRepeatCount}
         repeatDueCount={dueRepeatCount}
+        reportsCount={reportsCount}
+        manualCount={manualCount}
       />
 
       {/* Main Content Area */}
@@ -538,10 +588,17 @@ export default function App() {
               onOpenCreateCustomer={() => setIsCreateCustomerOpen(true)}
               onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
               onOpenCreateOrder={() => setIsCreateOrderOpen(true)}
-              customerCount={(filteredCustomers || []).length}
+              customerCount={customerCount}
+              activitiesCount={activitiesCount}
+              ordersCount={ordersCount}
+              leadsCount={leadsCount}
+              calendarCount={calendarCount}
+              afterSalesCount={afterSalesCount}
               todayCount={todayCount}
               overdueCount={overdueCount}
               dueRepeatCount={dueRepeatCount}
+              reportsCount={reportsCount}
+              manualCount={manualCount}
             />
           )}
 
@@ -575,7 +632,8 @@ export default function App() {
                 setSelectedCustomer(c);
                 setIsCreateOrderOpen(true);
               }}
-              onDeleteCustomer={handleDeleteCustomer}
+              onEditCustomer={(c) => setEditingCustomer(c)}
+              onDeleteCustomer={(c) => handleDeleteCustomer(c.id)}
             />
           )}
 
@@ -592,6 +650,7 @@ export default function App() {
               onOpenCreateOrder={() => setIsCreateOrderOpen(true)}
               onUpdateCustomerStatus={handleUpdateCustomerStatus}
               onAddNote={handleAddNote}
+              onEditCustomer={(c) => setEditingCustomer(c)}
               onDeleteCustomer={() => handleDeleteCustomer(selectedCustomer.id)}
               onAddDocument={handleAddDocument}
               onDeleteDocument={handleDeleteDocument}
@@ -696,6 +755,14 @@ export default function App() {
         onSubmit={handleCreateCustomer}
       />
 
+      <EditCustomerModal
+        isOpen={Boolean(editingCustomer)}
+        customer={editingCustomer}
+        onClose={() => setEditingCustomer(null)}
+        onSubmit={handleEditCustomer}
+        onDelete={(id) => handleDeleteCustomer(id)}
+      />
+
       <CreateActivityModal
         isOpen={isCreateActivityOpen}
         onClose={() => setIsCreateActivityOpen(false)}
@@ -726,10 +793,17 @@ export default function App() {
       <MobileBottomNav
         currentTab={activeTab}
         onSelectTab={setActiveTab}
-        customerCount={(customers || []).length}
+        customerCount={customerCount}
+        activitiesCount={activitiesCount}
+        ordersCount={ordersCount}
+        leadsCount={leadsCount}
+        calendarCount={calendarCount}
+        afterSalesCount={afterSalesCount}
         todayCount={todayCount}
         overdueCount={overdueCount}
         dueRepeatCount={dueRepeatCount}
+        reportsCount={reportsCount}
+        manualCount={manualCount}
         onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
       />
     </div>

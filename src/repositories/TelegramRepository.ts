@@ -81,13 +81,27 @@ export class TelegramRepository {
     try {
       const { data, error } = await supabase.from('telegram_queue').select('*').order('created_at', { ascending: false });
       if (!error && data) return data;
+      // Fallback check notification_queue
+      const { data: nData, error: nErr } = await supabase.from('notification_queue').select('*').order('created_at', { ascending: false });
+      if (!nErr && nData) return nData;
     } catch (e) {}
     return [];
   }
 
   async pushQueue(item: TelegramQueueItem): Promise<TelegramQueueItem> {
     try {
-      await supabase.from('telegram_queue').insert(item);
+      const { error } = await supabase.from('telegram_queue').insert(item);
+      if (error) {
+        // Try notification_queue if telegram_queue doesn't exist
+        await supabase.from('notification_queue').insert({
+          id: item.id,
+          notification_type: item.type,
+          topic_key: item.type.toLowerCase(),
+          payload: item.payload,
+          status: item.status.toLowerCase(),
+          retry_count: item.retry_count,
+        });
+      }
     } catch (e) {
       console.error('[TelegramRepository.pushQueue error]:', e);
     }
@@ -96,7 +110,16 @@ export class TelegramRepository {
 
   async updateQueue(item: TelegramQueueItem): Promise<TelegramQueueItem> {
     try {
-      await supabase.from('telegram_queue').upsert(item);
+      const { error } = await supabase.from('telegram_queue').upsert(item);
+      if (error) {
+        await supabase.from('notification_queue').upsert({
+          id: item.id,
+          payload: item.payload,
+          status: item.status.toLowerCase(),
+          retry_count: item.retry_count,
+          processed_at: item.processed_at,
+        });
+      }
     } catch (e) {
       console.error('[TelegramRepository.updateQueue error]:', e);
     }

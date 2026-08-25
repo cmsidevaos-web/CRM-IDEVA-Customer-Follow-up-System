@@ -42,8 +42,8 @@ export const CreateCustomerModal: React.FC<CreateCustomerModalProps> = ({
       companyName,
       contactName,
       phone,
-      lineId: lineId || 'line_' + Date.now().toString().slice(-4),
-      email: email || 'contact@customer.com',
+      lineId: lineId ? lineId.trim() : '',
+      email: email ? email.trim() : '',
       interestedProducts,
       source,
       salesOwner,
@@ -109,23 +109,23 @@ export const CreateCustomerModal: React.FC<CreateCustomerModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 mb-1">LINE ID</label>
+              <label className="block font-bold text-slate-700 mb-1">LINE ID (ถ้ามี - กรอกเองหรือเว้นว่างไว้)</label>
               <input
                 type="text"
                 value={lineId}
                 onChange={(e) => setLineId(e.target.value)}
-                placeholder="somchai1123"
+                placeholder="เช่น @brand_name หรือ user_line (เว้นว่างได้)"
                 className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Email</label>
+              <label className="block font-bold text-slate-700 mb-1">Email (ถ้ามี - เว้นว่างได้)</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="contact@abcshop.com"
+                placeholder="contact@example.com (เว้นว่างได้)"
                 className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>

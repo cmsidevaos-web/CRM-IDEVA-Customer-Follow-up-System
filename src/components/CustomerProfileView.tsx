@@ -48,6 +48,7 @@ interface CustomerProfileViewProps {
   onOpenCreateOrder: () => void;
   onUpdateCustomerStatus: (newStatus: CustomerStatus) => void;
   onAddNote: (content: string, isPinned: boolean) => void;
+  onEditCustomer?: (customer: Customer) => void;
   onDeleteCustomer?: () => void;
   onAddDocument?: (docData: { name: string; type: 'QUOTATION' | 'PROPOSAL' | 'INVOICE' | 'CONTRACT' | 'OTHER'; fileSize: string; fileUrl: string }) => Promise<void> | void;
   onDeleteDocument?: (docId: string) => Promise<void> | void;
@@ -64,6 +65,7 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
   onOpenCreateOrder,
   onUpdateCustomerStatus,
   onAddNote,
+  onEditCustomer,
   onDeleteCustomer,
   onAddDocument,
   onDeleteDocument,
@@ -71,6 +73,7 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
   const [newNoteText, setNewNoteText] = useState('');
   const [isNotePinned, setIsNotePinned] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Document Upload States
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -184,7 +187,10 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
     }
   };
 
-  const latestOrder = orders.length > 0 ? orders[0] : null;
+  const customerOrders = orders.filter((o) => o.customerId === customer.id);
+  const latestOrder = customerOrders.length > 0 ? customerOrders[0] : null;
+  const totalCustUnits = customerOrders.reduce((sum, o) => sum + Number(o.quantity || 0), 0);
+  const totalCustRevenue = customerOrders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -207,29 +213,63 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
         </div>
 
         {/* Quick Contact & Action Buttons */}
-        <div className="flex items-center space-x-2">
-          <a
-            href={`tel:${customer.phone}`}
-            className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center transition-colors"
-            title="โทรหาลูกค้า"
-          >
-            <Phone size={18} />
-          </a>
-          <button
-            onClick={() => alert(`เปิด LINE Chat สำหรับ ${customer.lineId}`)}
-            className="w-9 h-9 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 flex items-center justify-center transition-colors shadow-2xs font-bold text-xs"
-            title="ส่งข้อความ LINE"
-          >
-            LINE
-          </button>
-          <a
-            href={`mailto:${customer.email}`}
-            className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center transition-colors"
-            title="ส่งอีเมล"
-          >
-            <Mail size={18} />
-          </a>
+        <div className="flex items-center flex-wrap gap-2">
+          {customer.phone && (
+            <a
+              href={`tel:${customer.phone}`}
+              className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center transition-colors"
+              title={`โทรหาลูกค้า: ${customer.phone}`}
+            >
+              <Phone size={18} />
+            </a>
+          )}
+          {customer.lineId ? (
+            <a
+              href={`https://line.me/ti/p/~${customer.lineId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 h-9 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 flex items-center justify-center gap-1 transition-colors shadow-2xs font-bold text-xs"
+              title={`เปิด LINE Chat: ${customer.lineId}`}
+            >
+              LINE
+            </a>
+          ) : (
+            <button
+              disabled
+              className="px-3 h-9 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center gap-1 font-bold text-xs cursor-not-allowed"
+              title="ลูกค้าไม่ได้ระบุ LINE ID"
+            >
+              LINE
+            </button>
+          )}
+          {customer.email ? (
+            <a
+              href={`mailto:${customer.email}`}
+              className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center transition-colors"
+              title={`ส่งอีเมล: ${customer.email}`}
+            >
+              <Mail size={18} />
+            </a>
+          ) : null}
           <div className="h-5 w-px bg-slate-200" />
+          {onEditCustomer && (
+            <button
+              onClick={() => onEditCustomer(customer)}
+              className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-colors"
+              title="แก้ไขข้อมูลลูกค้า"
+            >
+              <Edit size={14} /> แก้ไขลูกค้า
+            </button>
+          )}
+          {onDeleteCustomer && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-colors"
+              title="ลบข้อมูลลูกค้า"
+            >
+              <Trash2 size={14} /> ลบลูกค้า
+            </button>
+          )}
           <button
             onClick={onOpenCreateActivity}
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 shadow-2xs"
@@ -238,6 +278,57 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal for Profile */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in-50">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 bg-rose-100 rounded-xl">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm">ยืนยันการลบลูกค้า</h3>
+                <p className="text-[11px] text-slate-500 font-mono">ID: {customer.id}</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+              <div className="font-bold text-slate-800">{customer.companyName}</div>
+              <div className="text-slate-600">ผู้ติดต่อ: {customer.contactName} | เบอร์โทร: {customer.phone}</div>
+              {customer.lineId && (
+                <div className="text-emerald-600 font-mono text-[11px]">LINE: {customer.lineId}</div>
+              )}
+            </div>
+
+            <p className="text-xs text-rose-600 leading-relaxed">
+              ⚠️ การลบนี้จะนำลูกค้ารายนี้ออกจากฐานข้อมูลอย่างถาวร ยืนยันที่จะดำเนินการหรือไม่?
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-colors"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteCustomer) {
+                    setShowDeleteConfirm(false);
+                    onDeleteCustomer();
+                  }
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-xs transition-all flex items-center gap-1.5"
+              >
+                <Trash2 size={14} /> ยืนยันลบลูกค้า
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main 3 Columns Layout matching Diagram 1 & 2 */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -275,12 +366,20 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
 
               <div>
                 <label className="text-slate-400 text-[11px]">LINE ID</label>
-                <div className="font-semibold text-emerald-600 font-mono">{customer.lineId}</div>
+                {customer.lineId ? (
+                  <div className="font-semibold text-emerald-600 font-mono">{customer.lineId}</div>
+                ) : (
+                  <div className="text-slate-400 italic">ไม่ระบุ</div>
+                )}
               </div>
 
               <div>
                 <label className="text-slate-400 text-[11px]">Email</label>
-                <div className="text-slate-700">{customer.email}</div>
+                {customer.email ? (
+                  <div className="text-slate-700 font-mono">{customer.email}</div>
+                ) : (
+                  <div className="text-slate-400 italic">ไม่ระบุ</div>
+                )}
               </div>
 
               <div>
@@ -464,9 +563,16 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
           {/* Card 1: ข้อมูลการซื้อ (Orders) */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 soft-shadow space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-                <ShoppingBag size={16} className="text-blue-600" /> ข้อมูลการซื้อ (Orders)
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+                  <ShoppingBag size={16} className="text-blue-600" /> ข้อมูลการซื้อ (Orders)
+                </h3>
+                {customerOrders.length > 0 && (
+                  <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-full">
+                    {customerOrders.length} ออเดอร์
+                  </span>
+                )}
+              </div>
               <button
                 onClick={onOpenCreateOrder}
                 className="text-xs text-blue-600 font-bold hover:underline flex items-center gap-1"
@@ -475,35 +581,34 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
               </button>
             </div>
 
-            {latestOrder ? (
-              <div className="bg-blue-50/50 p-3.5 rounded-xl border border-blue-100 text-xs space-y-2">
-                <div className="flex items-center justify-between font-bold text-slate-900">
-                  <span>Order ล่าสุด:</span>
-                  <span className="text-blue-700 font-mono">{latestOrder.id}</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>วันที่ Order:</span>
-                  <span className="font-medium text-slate-800">{latestOrder.orderDate}</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>สินค้า:</span>
-                  <span className="font-medium text-slate-800">{latestOrder.productName}</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>จำนวน:</span>
-                  <span className="font-bold text-slate-900">{latestOrder.quantity} ชิ้น</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>ยอดรวม:</span>
-                  <span className="font-extrabold text-emerald-700 text-sm">
-                    ฿{latestOrder.totalAmount.toLocaleString()} บาท
+            {customerOrders.length > 0 ? (
+              <div className="space-y-2.5">
+                {/* Orders Total Summary */}
+                <div className="p-2.5 bg-emerald-50/70 rounded-xl border border-emerald-200/80 flex items-center justify-between text-xs">
+                  <span className="text-emerald-900 font-semibold">ยอดรวม ({totalCustUnits.toLocaleString()} ชิ้น):</span>
+                  <span className="font-extrabold text-emerald-700 font-mono text-sm">
+                    ฿{totalCustRevenue.toLocaleString()} บาท
                   </span>
                 </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>สถานะ:</span>
-                  <span className="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md text-[10px]">
-                    {latestOrder.status === 'COMPLETED' ? 'จัดส่งแล้ว' : latestOrder.status}
-                  </span>
+
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-0.5">
+                  {customerOrders.map((ord, idx) => (
+                    <div key={ord.id || idx} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                      <div className="flex items-center justify-between font-bold text-slate-900">
+                        <span className="font-mono text-blue-700 text-[11px]">{ord.id}</span>
+                        <span className="text-slate-500 font-normal text-[11px]">{ord.orderDate}</span>
+                      </div>
+                      <div className="font-semibold text-slate-800 truncate">{ord.productName}</div>
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 text-slate-600">
+                        <span className="font-bold text-slate-900 bg-slate-200/70 px-2 py-0.5 rounded text-[11px]">
+                          {Number(ord.quantity || 1).toLocaleString()} ชิ้น
+                        </span>
+                        <span className="font-bold text-emerald-700 font-mono">
+                          ฿{Number(ord.totalAmount || 0).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ) : (

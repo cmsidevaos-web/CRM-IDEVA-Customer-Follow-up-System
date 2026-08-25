@@ -79,10 +79,14 @@ export const apiClient = {
         body: JSON.stringify(updates),
       },
       async () => {
-        const existing = await fetchCustomersFromSupabase();
-        const found = existing.data.find((c) => c.id === id);
-        if (!found) return null;
-        const updated = { ...found, ...updates, updatedAt: new Date().toISOString().split('T')[0] };
+        const { data: rawCustomers } = await fetchCustomersFromSupabase();
+        const found = rawCustomers.find((c) => c.id === id);
+        const updated: Customer = {
+          ...(found || {} as Customer),
+          ...updates,
+          id,
+          updatedAt: new Date().toISOString().split('T')[0],
+        };
         return await upsertCustomerSupabase(updated);
       }
     );
