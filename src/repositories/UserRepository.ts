@@ -6,18 +6,28 @@ export function userToDb(u: AppUser) {
   const fullName = (u.name && u.name.trim() !== '')
     ? u.name.trim()
     : `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username;
+  const nameParts = fullName.split(' ');
+  const firstName = u.firstName || nameParts[0] || fullName;
+  const lastName = u.lastName || nameParts.slice(1).join(' ') || '';
+  const username = String(u.username || '').trim().toLowerCase();
+  const password = String(u.password || '123456');
 
   return {
     id: String(u.id || `USER-${Date.now()}`),
-    username: String(u.username || '').trim().toLowerCase(),
-    password: String(u.password || '123456'),
+    username: username,
+    user_login: username,
+    password: password,
+    password_hash: password,
+    first_name: firstName,
+    last_name: lastName,
+    full_name: fullName,
     name: fullName,
-    role: String(u.role || 'SALES'),
+    email: u.email || `${username}@ideva.co.th`,
+    phone: u.phone || null,
     position: u.position || 'เจ้าหน้าที่ฝ่ายขาย',
     department: u.department || 'ฝ่ายขายและการตลาด (Sales)',
-    email: u.email || `${u.username || 'user'}@ideva.co.th`,
-    phone: u.phone || null,
     avatar_url: u.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    role: String(u.role || 'SALES'),
     status: String(u.status || 'ACTIVE'),
     sales_owner_tag: u.salesOwnerTag || (u.role === 'SALES' ? fullName : 'ALL'),
     permissions: u.permissions || DEFAULT_PERMISSIONS[u.role] || DEFAULT_PERMISSIONS.SALES,
@@ -27,7 +37,11 @@ export function userToDb(u: AppUser) {
 }
 
 export function userFromDb(row: any): AppUser {
-  const role = (row.role || 'SALES') as AppUser['role'];
+  const roleRaw = (row.role || 'SALES').toUpperCase();
+  const role: AppUser['role'] = (['MASTER_ADMIN', 'ADMIN', 'SALES', 'VIEWER'].includes(roleRaw)
+    ? roleRaw
+    : 'SALES') as AppUser['role'];
+
   const basePermissions = DEFAULT_PERMISSIONS[role] || DEFAULT_PERMISSIONS.SALES;
 
   let parsedPermissions = basePermissions;
@@ -43,30 +57,33 @@ export function userFromDb(row: any): AppUser {
     }
   }
 
-  const fullName = row.name || row.full_name || `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.username || 'User';
+  const fullName = row.name || row.full_name || row.fullName || `${row.first_name || row.firstName || ''} ${row.last_name || row.lastName || ''}`.trim() || row.username || row.user_login || 'User';
   const nameParts = fullName.split(' ');
-  const firstName = row.first_name || nameParts[0] || '';
-  const lastName = row.last_name || nameParts.slice(1).join(' ') || '';
+  const firstName = row.first_name || row.firstName || nameParts[0] || '';
+  const lastName = row.last_name || row.lastName || nameParts.slice(1).join(' ') || '';
+
+  const statusRaw = (row.status || 'ACTIVE').toUpperCase();
+  const status: AppUser['status'] = (statusRaw === 'INACTIVE' || statusRaw === 'SUSPENDED' ? statusRaw : 'ACTIVE') as AppUser['status'];
 
   return {
     id: String(row.id || `USER-${Date.now()}`),
-    username: row.username || row.user_login || '',
-    password: row.password || row.password_hash || '123456',
+    username: row.username || row.user_login || row.user || row.login || '',
+    password: row.password || row.password_hash || row.pass || '123456',
     firstName,
     lastName,
     name: fullName,
-    email: row.email || `${row.username || 'user'}@ideva.co.th`,
-    phone: row.phone || '',
-    position: row.position || 'เจ้าหน้าที่ฝ่ายขาย',
-    department: row.department || 'ฝ่ายขายและการตลาด (Sales)',
-    avatarUrl: row.avatar_url || row.avatarUrl || row.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    email: row.email || row.user_email || `${row.username || row.user_login || 'user'}@ideva.co.th`,
+    phone: row.phone || row.tel || row.telephone || '',
+    position: row.position || row.job_title || 'เจ้าหน้าที่ฝ่ายขาย',
+    department: row.department || row.dept || 'ฝ่ายขายและการตลาด (Sales)',
+    avatarUrl: row.avatar_url || row.avatarUrl || row.avatar || row.image_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     role: role,
-    status: (row.status || 'ACTIVE') as AppUser['status'],
-    salesOwnerTag: row.sales_owner_tag || row.salesOwnerTag || (role === 'SALES' ? fullName : 'ALL'),
+    status: status,
+    salesOwnerTag: row.sales_owner_tag || row.salesOwnerTag || row.sales_owner || (role === 'SALES' ? fullName : 'ALL'),
     permissions: parsedPermissions,
-    createdAt: row.created_at || new Date().toISOString().split('T')[0],
-    updatedAt: row.updated_at || new Date().toISOString().split('T')[0],
-    lastLoginAt: row.last_login_at || undefined,
+    createdAt: row.created_at || row.createdAt || new Date().toISOString().split('T')[0],
+    updatedAt: row.updated_at || row.updatedAt || new Date().toISOString().split('T')[0],
+    lastLoginAt: row.last_login_at || row.lastLoginAt || undefined,
   };
 }
 
@@ -124,14 +141,14 @@ export class UserRepository {
   }
 
   async find(): Promise<{ users: AppUser[]; fromSupabase: boolean; tableMissing?: boolean; error?: string }> {
-    // If we already detected the table does not exist in Supabase, use resilient local store
-    if (this.isTableAvailable === false) {
-      return { users: this.inMemoryUsers, fromSupabase: false, tableMissing: true };
-    }
-
     try {
-      const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: true });
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: true });
+
       if (error) {
+        console.warn('[UserRepository.find Supabase warning]:', error.message, error.code);
         if (isTableMissingError(error)) {
           this.isTableAvailable = false;
           return { users: this.inMemoryUsers, fromSupabase: false, tableMissing: true };
@@ -152,6 +169,7 @@ export class UserRepository {
       persistStoredUsers(mapped);
       return { users: mapped, fromSupabase: true };
     } catch (err: any) {
+      console.warn('[UserRepository.find exception]:', err);
       if (isTableMissingError(err)) {
         this.isTableAvailable = false;
         return { users: this.inMemoryUsers, fromSupabase: false, tableMissing: true };
@@ -161,22 +179,12 @@ export class UserRepository {
   }
 
   async findById(id: string): Promise<AppUser | null> {
-    if (this.isTableAvailable !== false) {
-      try {
-        const { data, error } = await supabase.from('users').select('*').eq('id', id).maybeSingle();
-        if (error) {
-          if (isTableMissingError(error)) {
-            this.isTableAvailable = false;
-          }
-        } else if (data) {
-          return userFromDb(data);
-        }
-      } catch (e: any) {
-        if (isTableMissingError(e)) {
-          this.isTableAvailable = false;
-        }
+    try {
+      const { data, error } = await supabase.from('users').select('*').eq('id', id).maybeSingle();
+      if (!error && data) {
+        return userFromDb(data);
       }
-    }
+    } catch (e: any) {}
 
     return this.inMemoryUsers.find((u) => u.id === id) || null;
   }
@@ -184,27 +192,17 @@ export class UserRepository {
   async findByUsername(username: string): Promise<AppUser | null> {
     const cleanUsername = username.trim().toLowerCase();
 
-    if (this.isTableAvailable !== false) {
-      try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('*')
-          .ilike('username', cleanUsername)
-          .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .or(`username.ilike.${cleanUsername},user_login.ilike.${cleanUsername},email.ilike.${cleanUsername}`)
+        .maybeSingle();
 
-        if (error) {
-          if (isTableMissingError(error)) {
-            this.isTableAvailable = false;
-          }
-        } else if (data) {
-          return userFromDb(data);
-        }
-      } catch (e: any) {
-        if (isTableMissingError(e)) {
-          this.isTableAvailable = false;
-        }
+      if (!error && data) {
+        return userFromDb(data);
       }
-    }
+    } catch (e: any) {}
 
     return (
       this.inMemoryUsers.find(
@@ -216,7 +214,7 @@ export class UserRepository {
   async save(user: AppUser): Promise<AppUser> {
     const dbRow = userToDb(user);
 
-    // Update in-memory first for instant UI response and local persistence
+    // Update in-memory first for immediate responsive UI
     const existingIdx = this.inMemoryUsers.findIndex(
       (u) => u.id === user.id || u.username.toLowerCase() === user.username.toLowerCase()
     );
@@ -227,53 +225,84 @@ export class UserRepository {
     }
     persistStoredUsers(this.inMemoryUsers);
 
-    // If table is known to be missing in Supabase, return directly without error
-    if (this.isTableAvailable === false) {
-      return user;
+    try {
+      // 1. Try Upsert with onConflict on 'id'
+      const { data, error } = await supabase
+        .from('users')
+        .upsert(dbRow, { onConflict: 'id' })
+        .select();
+
+      if (!error && data && data.length > 0) {
+        this.isTableAvailable = true;
+        const saved = userFromDb(data[0]);
+        // update local cache with returned row
+        if (existingIdx >= 0) {
+          this.inMemoryUsers[existingIdx] = saved;
+        }
+        persistStoredUsers(this.inMemoryUsers);
+        return saved;
+      }
+
+      // 2. If upsert returned error, try direct Update
+      const { data: updateData, error: updateError } = await supabase
+        .from('users')
+        .update(dbRow)
+        .eq('id', user.id)
+        .select();
+
+      if (!updateError && updateData && updateData.length > 0) {
+        this.isTableAvailable = true;
+        const saved = userFromDb(updateData[0]);
+        if (existingIdx >= 0) {
+          this.inMemoryUsers[existingIdx] = saved;
+        }
+        persistStoredUsers(this.inMemoryUsers);
+        return saved;
+      }
+
+      // 3. If update returned error or empty, try Insert
+      const { data: insertData, error: insertError } = await supabase
+        .from('users')
+        .insert(dbRow)
+        .select();
+
+      if (!insertError && insertData && insertData.length > 0) {
+        this.isTableAvailable = true;
+        const saved = userFromDb(insertData[0]);
+        if (existingIdx >= 0) {
+          this.inMemoryUsers[existingIdx] = saved;
+        }
+        persistStoredUsers(this.inMemoryUsers);
+        return saved;
+      }
+
+      if (error || updateError || insertError) {
+        console.warn('[UserRepository.save Supabase notice]:', error || updateError || insertError);
+      }
+    } catch (err: any) {
+      console.warn('[UserRepository.save exception]:', err);
     }
 
-    try {
-      const { data, error } = await supabase.from('users').upsert(dbRow, { onConflict: 'id' }).select().single();
-      if (error) {
-        if (isTableMissingError(error)) {
-          this.isTableAvailable = false;
-        }
-        return user;
-      }
-      this.isTableAvailable = true;
-      return userFromDb(data || dbRow);
-    } catch (err: any) {
-      if (isTableMissingError(err)) {
-        this.isTableAvailable = false;
-      }
-      return user;
-    }
+    return user;
   }
 
   async delete(id: string): Promise<boolean> {
     this.inMemoryUsers = this.inMemoryUsers.filter((u) => u.id !== id);
     persistStoredUsers(this.inMemoryUsers);
 
-    if (this.isTableAvailable === false) {
-      return true;
-    }
-
     try {
       const { error } = await supabase.from('users').delete().eq('id', id);
-      if (error && isTableMissingError(error)) {
-        this.isTableAvailable = false;
+      if (error) {
+        console.warn('[UserRepository.delete Supabase error]:', error.message);
       }
       return true;
     } catch (err: any) {
-      if (isTableMissingError(err)) {
-        this.isTableAvailable = false;
-      }
+      console.warn('[UserRepository.delete exception]:', err);
       return true;
     }
   }
 
   async seedBatch(users: AppUser[]): Promise<{ success: boolean; error?: string }> {
-    // Merge into local cache
     for (const u of users) {
       const idx = this.inMemoryUsers.findIndex(
         (x) => x.id === u.id || x.username.toLowerCase() === u.username.toLowerCase()
@@ -290,6 +319,7 @@ export class UserRepository {
     try {
       const { error } = await supabase.from('users').upsert(rows, { onConflict: 'id' });
       if (error) {
+        console.warn('[UserRepository.seedBatch error]:', error.message);
         if (isTableMissingError(error)) {
           this.isTableAvailable = false;
           return { success: false, error: 'TABLE_MISSING' };
@@ -299,6 +329,7 @@ export class UserRepository {
       this.isTableAvailable = true;
       return { success: true };
     } catch (e: any) {
+      console.warn('[UserRepository.seedBatch exception]:', e);
       if (isTableMissingError(e)) {
         this.isTableAvailable = false;
         return { success: false, error: 'TABLE_MISSING' };
@@ -309,3 +340,4 @@ export class UserRepository {
 }
 
 export const userRepository = new UserRepository();
+

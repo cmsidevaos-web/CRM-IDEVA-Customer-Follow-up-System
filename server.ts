@@ -849,9 +849,16 @@ async function startServer() {
   app.get('/api/users', async (req, res) => {
     try {
       const result = await fetchUsersFromSupabase();
-      res.json(result);
+      res.json({
+        total: result.data.length,
+        users: result.data,
+        data: result.data,
+        fromSupabase: result.fromSupabase,
+        tableMissing: result.tableMissing,
+        error: result.error,
+      });
     } catch (e: any) {
-      res.status(500).json({ error: e?.message || 'Error fetching users', users: INITIAL_USERS, fromSupabase: false });
+      res.status(500).json({ error: e?.message || 'Error fetching users', users: INITIAL_USERS, data: INITIAL_USERS, fromSupabase: false });
     }
   });
 

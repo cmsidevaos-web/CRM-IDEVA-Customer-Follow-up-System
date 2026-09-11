@@ -111,8 +111,15 @@ export default function App() {
   const loadUsers = async () => {
     try {
       const uRes = await apiClient.getUsers();
-      if (uRes && Array.isArray(uRes.users) && uRes.users.length > 0) {
-        setUsers(uRes.users);
+      const userList = Array.isArray(uRes?.users)
+        ? uRes.users
+        : Array.isArray((uRes as any)?.data)
+        ? (uRes as any).data
+        : Array.isArray(uRes)
+        ? (uRes as any)
+        : [];
+      if (userList.length > 0) {
+        setUsers(userList);
       }
     } catch (e) {
       console.error('Error fetching users:', e);
@@ -145,8 +152,17 @@ export default function App() {
         setOrders(ordData);
       }
 
-      if (userData && Array.isArray(userData.users) && userData.users.length > 0) {
-        setUsers(userData.users);
+      if (userData) {
+        const userList = Array.isArray(userData.users)
+          ? userData.users
+          : Array.isArray((userData as any).data)
+          ? (userData as any).data
+          : Array.isArray(userData)
+          ? (userData as any)
+          : [];
+        if (userList.length > 0) {
+          setUsers(userList);
+        }
       }
     } catch (err) {
       console.error('Error fetching Supabase data:', err);

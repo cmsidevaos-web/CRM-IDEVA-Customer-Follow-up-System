@@ -255,19 +255,32 @@ export const apiClient = {
     );
   },
 
-  async getUsers(): Promise<{ users: AppUser[]; fromSupabase: boolean; tableMissing?: boolean }> {
-    return safeFetchJson(
+  async getUsers(): Promise<{ users: AppUser[]; data: AppUser[]; fromSupabase: boolean; tableMissing?: boolean }> {
+    const res = await safeFetchJson<any>(
       '/api/users',
       undefined,
       async () => {
-        const res = await fetchUsersFromSupabase();
-        return { users: res.data, fromSupabase: res.fromSupabase, tableMissing: res.tableMissing };
+        const fetchRes = await fetchUsersFromSupabase();
+        return { users: fetchRes.data, data: fetchRes.data, fromSupabase: fetchRes.fromSupabase, tableMissing: fetchRes.tableMissing };
       }
     );
+    const userList: AppUser[] = Array.isArray(res?.users)
+      ? res.users
+      : Array.isArray(res?.data)
+      ? res.data
+      : Array.isArray(res)
+      ? res
+      : [];
+    return {
+      users: userList,
+      data: userList,
+      fromSupabase: Boolean(res?.fromSupabase),
+      tableMissing: res?.tableMissing,
+    };
   },
 
   async saveUser(user: AppUser): Promise<AppUser> {
-    return safeFetchJson(
+    const res = await safeFetchJson<any>(
       '/api/users',
       {
         method: 'POST',
@@ -276,6 +289,13 @@ export const apiClient = {
       },
       async () => await upsertUserSupabase(user)
     );
+    if (res && res.user && typeof res.user === 'object') {
+      return res.user;
+    }
+    if (res && res.id) {
+      return res as AppUser;
+    }
+    return user;
   },
 
   async deleteUser(id: string): Promise<boolean> {

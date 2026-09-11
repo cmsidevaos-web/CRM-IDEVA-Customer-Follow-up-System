@@ -67,7 +67,25 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Auto-fetch users from Supabase on mount
+  React.useEffect(() => {
+    onUsersUpdated();
+  }, []);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await onUsersUpdated();
+      showFeedback('ดึงข้อมูลผู้ใช้งานล่าสุดจาก Supabase ครบถ้วนแล้ว');
+    } catch (e: any) {
+      showFeedback('ไม่สามารถรีเฟรชข้อมูลได้: ' + (e?.message || 'ข้อผิดพลาด'), 'error');
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
+  };
 
   // Form State
   const [formData, setFormData] = useState<Partial<AppUser>>({
@@ -342,18 +360,19 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 -- ====================================================================
 
 CREATE TABLE IF NOT EXISTS public.users (
-    id VARCHAR(50) PRIMARY KEY,
+    id VARCHAR(100) PRIMARY KEY,
     username VARCHAR(100) UNIQUE NOT NULL,
     user_login VARCHAR(100),
-    password_hash TEXT NOT NULL,
-    password TEXT,
-    first_name VARCHAR(100) NOT NULL,
+    password_hash TEXT,
+    password TEXT DEFAULT '123456',
+    first_name VARCHAR(100),
     last_name VARCHAR(100),
-    full_name TEXT NOT NULL,
+    full_name TEXT,
     name TEXT,
-    email VARCHAR(100),
-    position VARCHAR(100),
-    department VARCHAR(100),
+    email VARCHAR(150),
+    phone VARCHAR(50),
+    position VARCHAR(100) DEFAULT 'เจ้าหน้าที่ฝ่ายขาย',
+    department VARCHAR(100) DEFAULT 'ฝ่ายขายและการตลาด (Sales)',
     avatar_url TEXT,
     role VARCHAR(50) DEFAULT 'SALES',
     status VARCHAR(50) DEFAULT 'ACTIVE',
@@ -412,11 +431,20 @@ ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
               จัดการผู้ใช้งาน & กำหนดสิทธิ์
             </h1>
             <p className="text-xs sm:text-sm text-blue-200 max-w-2xl leading-relaxed">
-              เพิ่มฝ่ายขาย, ผู้ดูแลระบบ, หรือผู้ดูข้อมูล กำหนดสถานะและสิทธิ์การเข้าถึงระดับฟังก์ชั่น (ดูทั้งหมด, ลบข้อมูล, สร้างออเดอร์, ดูรายงาน) พร้อมบันทึกตรงสู่ Supabase
+              เพิ่มฝ่ายขาย, ผู้ดูแลระบบ, หรือผู้ดูข้อมูล กำหนดสถานะและสิทธิ์การเข้าถึงระดับฟังก์ชั่น (ดูทั้งหมด, ลบข้อมูล, สร้างออเดอร์, ดูรายงาน) พร้อมบันทึกและดึงข้อมูลตรงจาก Supabase Real-time
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-2xl border border-white/20 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="ดึงข้อมูลล่าสุดจาก Supabase"
+            >
+              <RefreshCw size={15} className={isRefreshing ? 'animate-spin text-blue-300' : ''} />
+              <span>{isRefreshing ? 'กำลังโหลด...' : 'รีเฟรชข้อมูล'}</span>
+            </button>
             <button
               onClick={() => setIsSqlModalOpen(true)}
               className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-2xl border border-white/20 transition-all flex items-center gap-1.5 cursor-pointer"
