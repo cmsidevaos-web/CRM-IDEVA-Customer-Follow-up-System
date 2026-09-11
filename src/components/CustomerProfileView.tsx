@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   Award,
+  Briefcase,
   Calendar,
   CheckCircle2,
   Clock,
@@ -616,36 +617,91 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({
             )}
           </div>
 
-          {/* Card 2: ข้อมูลการซื้อซ้ำ (Repeat Order Summary - Diagram 2) */}
-          <div className="bg-white rounded-2xl border border-amber-200 p-5 soft-shadow bg-gradient-to-br from-amber-50/30 to-white space-y-3">
-            <div className="flex items-center justify-between border-b border-amber-100 pb-2.5">
-              <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-                <Repeat size={16} className="text-amber-600" /> ข้อมูลติดตามซื้อซ้ำ (Repeat Order)
-              </h3>
-              <span className="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full text-[10px]">
-                {customer.repeatStatus || 'UPCOMING'}
-              </span>
-            </div>
+          {/* Card 2: ข้อมูลการซื้อซ้ำ หรือ สถานะการดีล */}
+          {customer.repeatStatus === 'NOT_APPLICABLE' ||
+          (Number(customer.totalOrdersCount || 0) === 0 &&
+            customer.status !== 'WON' &&
+            customer.status !== 'EXISTING' &&
+            (!customer.avgReorderCycleDays || customer.avgReorderCycleDays === 0)) ? (
+            <div className="bg-white rounded-2xl border border-amber-200 p-5 soft-shadow bg-gradient-to-br from-amber-50/40 via-white to-slate-50/30 space-y-3">
+              <div className="flex items-center justify-between border-b border-amber-100 pb-2.5">
+                <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+                  <Briefcase size={16} className="text-amber-600" /> สถานะการดีล & การซื้อซ้ำ
+                </h3>
+                <span className="bg-amber-100 text-amber-900 border border-amber-200 font-bold px-2 py-0.5 rounded-full text-[10px] flex items-center gap-1">
+                  💼 อยู่ระหว่างการดีล (ยังไม่มีข้อมูลซื้อซ้ำ)
+                </span>
+              </div>
 
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-500">รอบซื้อเฉลี่ย:</span>
-                <span className="font-bold text-slate-800">{customer.avgReorderCycleDays} วัน</span>
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1.5 text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-amber-900 text-xs">
+                  <span>สถานะการขายปัจจุบัน:</span>
+                  <span className="bg-white px-2 py-0.5 rounded-md border border-amber-300 text-amber-800 text-[11px]">
+                    {customer.status}
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-800/90 leading-relaxed">
+                  ลูกค้ารายนี้อยู่ระหว่างการเจรจาดีล/เสนอราคา ยังไม่มีคำสั่งซื้อผลิตล็อตแรก ระบบจึง<strong>ยังไม่เริ่มนับรอบซื้อซ้ำ</strong>
+                </p>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">ล่าสุดส่งมอบ:</span>
-                <span className="font-medium text-slate-800">{customer.lastDeliveryDate || customer.lastOrderDate || '10/08/2026'}</span>
+
+              <div className="space-y-2 text-xs pt-0.5">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">นัดติดตามครั้งถัดไป:</span>
+                  <span className="font-bold text-slate-800">{customer.nextFollowUpDate} {customer.nextFollowUpTime}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">สิ่งที่ต้องทำ (Next Action):</span>
+                  <span className="font-medium text-slate-800 text-right max-w-[65%] truncate" title={customer.nextAction}>
+                    {customer.nextAction || '-'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">ยอดคำสั่งซื้อสะสม:</span>
+                  <span className="font-bold text-slate-600">0 รายการ (฿0)</span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">คาดว่าจะซื้อซ้ำ:</span>
-                <span className="font-bold text-amber-700">{customer.nextReorderDate || '09/10/2026'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">เริ่มติดตาม (Follow-up Start):</span>
-                <span className="font-medium text-slate-800">{customer.followUpStartDate || '24/09/2026'}</span>
+
+              <div className="pt-2 border-t border-slate-100">
+                <button
+                  onClick={onOpenCreateOrder}
+                  className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+                >
+                  <Plus size={14} /> เปิดคำสั่งซื้อผลิตล็อตแรก (First Order)
+                </button>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-amber-200 p-5 soft-shadow bg-gradient-to-br from-amber-50/30 to-white space-y-3">
+              <div className="flex items-center justify-between border-b border-amber-100 pb-2.5">
+                <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+                  <Repeat size={16} className="text-amber-600" /> ข้อมูลติดตามซื้อซ้ำ (Repeat Order)
+                </h3>
+                <span className="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full text-[10px]">
+                  {customer.repeatStatus || 'UPCOMING'}
+                </span>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">รอบซื้อเฉลี่ย:</span>
+                  <span className="font-bold text-slate-800">{customer.avgReorderCycleDays || 0} วัน</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">ล่าสุดส่งมอบ:</span>
+                  <span className="font-medium text-slate-800">{customer.lastDeliveryDate || customer.lastOrderDate || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">คาดว่าจะซื้อซ้ำ:</span>
+                  <span className="font-bold text-amber-700">{customer.nextReorderDate || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">เริ่มติดตาม (Follow-up Start):</span>
+                  <span className="font-medium text-slate-800">{customer.followUpStartDate || '-'}</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Card 3: เอกสารที่เกี่ยวข้อง */}
           <div

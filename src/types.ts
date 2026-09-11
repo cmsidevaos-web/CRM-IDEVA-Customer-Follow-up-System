@@ -14,7 +14,8 @@ export type RepeatOrderStatus =
   | 'DUE'
   | 'OVERDUE'
   | 'REORDERED'
-  | 'LOST_REPEAT';
+  | 'LOST_REPEAT'
+  | 'NOT_APPLICABLE'; // เคสลูกค้าที่อยู่ระหว่างการดีล / ยังไม่ต้องมีข้อมูลการซื้อซ้ำ
 
 export type CustomerTier = 
   | 'PLATINUM'
@@ -151,14 +152,53 @@ export interface LostReasonRecord {
   createdAt: string;
 }
 
+export type UserRole = 'MASTER_ADMIN' | 'ADMIN' | 'MANAGER' | 'SALES' | 'VIEWER';
+export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
+
+export interface UserPermissions {
+  canViewDashboard: boolean;
+  canManageCustomers: boolean;
+  canDeleteCustomers: boolean;
+  canManageOrders: boolean;
+  canManageActivities: boolean;
+  canViewReports: boolean;
+  canExportData: boolean;
+  canAccessSettings: boolean;
+  canManageUsers: boolean;
+  dataScope: 'ALL' | 'OWN_ONLY';
+}
+
 export interface UserProfile {
   id: string;
+  username?: string;
   name: string;
-  role: 'ADMIN' | 'MANAGER' | 'SALES' | 'VIEWER';
+  firstName?: string;
+  lastName?: string;
+  role: UserRole;
+  status?: UserStatus;
   email: string;
+  phone?: string;
+  position?: string;
+  department?: string;
   avatarUrl?: string;
   avatar?: string;
   salesOwnerTag?: string;
+  permissions?: UserPermissions;
+  lastLoginAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AppUser extends UserProfile {
+  username: string;
+  password?: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  position: string;
+  department: string;
+  status: UserStatus;
+  permissions: UserPermissions;
 }
 
 export interface TelegramTopic {
@@ -241,4 +281,5 @@ export type ViewTab =
   | 'REPEAT_ORDERS'
   | 'REPORTS'
   | 'USER_MANUAL'
-  | 'SETTINGS';
+  | 'SETTINGS'
+  | 'USERS';

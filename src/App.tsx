@@ -19,13 +19,17 @@ import { RepeatOrderView } from './components/RepeatOrderView';
 import { ReportsView } from './components/ReportsView';
 import { SettingsView } from './components/SettingsView';
 import { UserManualView } from './components/UserManualView';
+import { UserManagementView } from './components/UserManagementView';
+import { LoginPage } from './components/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { WorkflowBanner } from './components/WorkflowBanner';
 import { realtimeService } from './services/RealtimeService';
 import { apiClient } from './services/apiClient';
+import { INITIAL_USERS } from './data/defaultUsers';
 
 import {
   Activity,
+  AppUser,
   Customer,
   CustomerDocument,
   CustomerStatus,
@@ -56,11 +60,37 @@ export default function App() {
   const [supabaseConnected, setSupabaseConnected] = useState<boolean>(true);
   const [tableMissing, setTableMissing] = useState<boolean>(false);
 
-  // User Profile State (Starts with Sales A by default or customizable)
-  const [currentUser, setCurrentUser] = useState<UserProfile>(AVAILABLE_USERS[0]);
+  // Users and Auth State
+  const [users, setUsers] = useState<AppUser[]>(INITIAL_USERS);
+  const [currentUser, setCurrentUser] = useState<AppUser>(() => {
+    try {
+      const saved = localStorage.getItem('ideva_crm_current_user');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return INITIAL_USERS[0];
+  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return Boolean(localStorage.getItem('ideva_crm_current_user'));
+  });
 
-  const handleSwitchUser = (newUser: UserProfile) => {
+  const handleLoginSuccess = (user: AppUser) => {
+    setCurrentUser(user);
+    setIsAuthenticated(true);
+    if (user.role === 'SALES' && user.salesOwnerTag) {
+      setSelectedSalesOwner(user.salesOwnerTag);
+    } else {
+      setSelectedSalesOwner('ALL');
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('ideva_crm_current_user');
+    setIsAuthenticated(false);
+  };
+
+  const handleSwitchUser = (newUser: any) => {
     setCurrentUser(newUser);
+    localStorage.setItem('ideva_crm_current_user', JSON.stringify(newUser));
     if (newUser.role === 'SALES' && newUser.salesOwnerTag) {
       setSelectedSalesOwner(newUser.salesOwnerTag);
     } else {
@@ -78,15 +108,27 @@ export default function App() {
     type: 'EXCEL',
   });
 
+  const loadUsers = async () => {
+    try {
+      const uRes = await apiClient.getUsers();
+      if (uRes && Array.isArray(uRes.users) && uRes.users.length > 0) {
+        setUsers(uRes.users);
+      }
+    } catch (e) {
+      console.error('Error fetching users:', e);
+    }
+  };
+
   // Fetch initial data from server / Supabase
   const loadSupabaseData = async () => {
     try {
       setLoading(true);
 
-      const [custData, actData, ordData] = await Promise.all([
+      const [custData, actData, ordData, userData] = await Promise.all([
         apiClient.getCustomers(),
         apiClient.getActivities(),
         apiClient.getOrders(),
+        apiClient.getUsers(),
       ]);
 
       if (custData && Array.isArray(custData.customers)) {
@@ -101,6 +143,10 @@ export default function App() {
 
       if (Array.isArray(ordData)) {
         setOrders(ordData);
+      }
+
+      if (userData && Array.isArray(userData.users) && userData.users.length > 0) {
+        setUsers(userData.users);
       }
     } catch (err) {
       console.error('Error fetching Supabase data:', err);
@@ -169,26 +215,40 @@ export default function App() {
 
   // Handler: Create Customer (Direct to Supabase)
   const handleCreateCustomer = async (data: any) => {
-    const newId = `CUST-${String(customers.length + 1).padStart(3, '0')}`;
+    // 1. Calculate a guaranteed unique ID based on max existing ID
+    let maxNum = 0;
+    for (const c of customers) {
+      const match = String(c.id || '').match(/(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNum) maxNum = num;
+      }
+    }
+    let nextNum = maxNum + 1;
+    while (customers.some((c) => c.id === `CUST-${String(nextNum).padStart(3, '0')}`)) {
+      nextNum++;
+    }
+    const newId = `CUST-${String(nextNum).padStart(3, '0')}`;
+
     const newCust: Customer = {
-      id: newId,
-      ...data,
       totalPurchases: 0,
       totalOrdersCount: 0,
       createdAt: new Date().toISOString().split('T')[0],
       updatedAt: new Date().toISOString().split('T')[0],
-      repeatStatus: 'UPCOMING',
+      repeatStatus: data.repeatStatus || 'UPCOMING',
+      ...data,
+      id: newId,
     };
 
     setCustomers((prev) => [newCust, ...prev]);
 
     try {
       const saved = await apiClient.createCustomer(newCust);
-      if (saved) {
-        setCustomers((prev) => prev.map((c) => (c.id === newCust.id ? saved : c)));
+      if (saved && saved.id) {
+        setCustomers((prev) => prev.map((c) => (c.id === newCust.id || c.id === saved.id ? saved : c)));
       }
     } catch (e) {
-      console.error('Saved to local state fallback');
+      console.error('Error saving customer to Supabase:', e);
     }
   };
 
@@ -217,6 +277,12 @@ export default function App() {
 
   // Handler: Delete Customer (Direct from Supabase)
   const handleDeleteCustomer = async (id: string) => {
+    const isMasterOrAdmin = currentUser.role === 'MASTER_ADMIN' || currentUser.role === 'ADMIN';
+    if (!isMasterOrAdmin && !currentUser.permissions?.canDeleteCustomers) {
+      alert('⚠️ คุณไม่มีสิทธิ์ในการลบข้อมูลลูกค้า (ต้องการสิทธิ์ canDeleteCustomers หรือ Master Admin)');
+      return;
+    }
+
     setCustomers((prev) => prev.filter((c) => c.id !== id));
     if (selectedCustomer?.id === id) {
       setSelectedCustomer(null);
@@ -270,14 +336,20 @@ export default function App() {
     }
 
     try {
-      await apiClient.createActivity(newAct);
-    } catch (e) {}
+      const saved = await apiClient.createActivity(newAct);
+      if (saved && saved.id) {
+        setActivities((prev) => prev.map((a) => (a.id === newAct.id ? { ...a, ...saved } : a)));
+      }
+    } catch (e) {
+      console.error('Error saving activity to Supabase:', e);
+    }
   };
 
   // Handler: Create Order (Direct to Supabase)
   const handleCreateOrder = async (data: any) => {
+    const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const newOrd: Order = {
-      id: `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(orders.length + 1).padStart(3, '0')}`,
+      id: `ORD-${datePrefix}-${String(orders.length + 1).padStart(3, '0')}-${Date.now().toString().slice(-3)}`,
       ...data,
     };
 
@@ -440,11 +512,13 @@ export default function App() {
     }
   };
 
-  // Calculate effective sales owner filter
-  const effectiveSalesOwner =
-    currentUser.role === 'SALES'
-      ? currentUser.salesOwnerTag || currentUser.name
-      : selectedSalesOwner;
+  // Calculate effective sales owner filter based on role and permissions
+  const isMasterOrAdmin = currentUser.role === 'MASTER_ADMIN' || currentUser.role === 'ADMIN';
+  const isRestrictedToOwn = !isMasterOrAdmin && (currentUser.permissions?.dataScope === 'OWN_ONLY' || currentUser.role === 'SALES');
+
+  const effectiveSalesOwner = isRestrictedToOwn
+    ? currentUser.salesOwnerTag || currentUser.name
+    : selectedSalesOwner;
 
   const filteredCustomers = useMemo(() => {
     if (effectiveSalesOwner === 'ALL') return customers || [];
@@ -495,17 +569,33 @@ export default function App() {
     (c) => c.status === 'WON' || Number(c.totalPurchases || 0) > 0 || Number(c.totalOrdersCount || 0) > 0
   ).length;
 
+  const todayStr = new Date().toISOString().split('T')[0];
   const todayCount = (filteredCustomers || []).filter(
-    (c) => c.nextFollowUpDate === '2026-07-30' || c.status === 'FOLLOW_UP'
+    (c) => c.nextFollowUpDate === todayStr || c.status === 'FOLLOW_UP'
   ).length;
   const overdueCount = (filteredCustomers || []).filter(
-    (c) => c.status === 'OVERDUE' || (Boolean(c.nextFollowUpDate) && (c.nextFollowUpDate || '') < '2026-07-30' && c.status !== 'WON' && c.status !== 'LOST')
+    (c) =>
+      c.status === 'OVERDUE' ||
+      (Boolean(c.nextFollowUpDate) &&
+        (c.nextFollowUpDate || '') < todayStr &&
+        c.status !== 'WON' &&
+        c.status !== 'LOST')
   ).length;
   const dueRepeatCount = (filteredCustomers || []).filter(
     (c) => c.repeatStatus === 'DUE' || c.repeatStatus === 'OVERDUE'
   ).length;
   const reportsCount = 4;
   const manualCount = 6;
+
+  // If user is not authenticated, show LoginPage
+  if (!isAuthenticated) {
+    return (
+      <LoginPage
+        onLoginSuccess={handleLoginSuccess}
+        availableUsers={users}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex text-slate-900 font-sans antialiased selection:bg-blue-100 selection:text-blue-900">
@@ -529,6 +619,8 @@ export default function App() {
         repeatDueCount={dueRepeatCount}
         reportsCount={reportsCount}
         manualCount={manualCount}
+        usersCount={users.length}
+        currentUser={currentUser}
       />
 
       {/* Main Content Area */}
@@ -542,6 +634,8 @@ export default function App() {
           currentUser={currentUser}
           user={currentUser}
           onSwitchUser={handleSwitchUser}
+          onLogout={handleLogout}
+          availableUsers={users}
           selectedSalesOwner={selectedSalesOwner}
           setSelectedSalesOwner={setSelectedSalesOwner}
           dateRange={dateRange}
@@ -671,6 +765,7 @@ export default function App() {
           {activeTab === 'CALENDAR' && (
             <CalendarView
               customers={filteredCustomers}
+              activities={filteredActivities}
               onSelectCustomer={handleSelectCustomer}
               onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
             />
@@ -741,7 +836,16 @@ export default function App() {
             <UserManualView onNavigate={(tab) => setActiveTab(tab)} />
           )}
 
-          {/* 12. Settings View */}
+          {/* 12. User Management View */}
+          {activeTab === 'USERS' && (
+            <UserManagementView
+              currentUser={currentUser}
+              users={users}
+              onUsersUpdated={loadUsers}
+            />
+          )}
+
+          {/* 13. Settings View */}
           {activeTab === 'SETTINGS' && (
             <SettingsView currentUser={currentUser} onReseedData={handleReseedData} />
           )}

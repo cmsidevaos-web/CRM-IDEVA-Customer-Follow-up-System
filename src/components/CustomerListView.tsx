@@ -56,7 +56,20 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
       c.phone.includes(searchTerm) ||
       (c.lineId ? c.lineId.toLowerCase().includes(searchTerm.toLowerCase()) : false);
 
-    const matchesStatus = selectedStatus === 'ALL' || c.status === selectedStatus;
+    const isDeal =
+      c.repeatStatus === 'NOT_APPLICABLE' ||
+      (Number(c.totalOrdersCount || 0) === 0 &&
+        c.status !== 'WON' &&
+        c.status !== 'EXISTING' &&
+        (!c.avgReorderCycleDays || c.avgReorderCycleDays === 0));
+
+    let matchesStatus = true;
+    if (selectedStatus === 'IN_DEAL') {
+      matchesStatus = isDeal || c.status === 'NEW' || c.status === 'CONTACTED' || c.status === 'FOLLOW_UP' || c.status === 'QUOTATION_SENT' || c.status === 'NEGOTIATION';
+    } else if (selectedStatus !== 'ALL') {
+      matchesStatus = c.status === selectedStatus;
+    }
+
     const matchesSales = selectedSales === 'ALL' || c.salesOwner === selectedSales;
 
     const todayStr = new Date().toISOString().split('T')[0];
@@ -162,6 +175,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
             className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-slate-700 font-medium focus:outline-none cursor-pointer"
           >
             <option value="ALL">ทั้งหมด</option>
+            <option value="IN_DEAL">💼 อยู่ระหว่างการดีล (ยังไม่มีข้อมูลซื้อซ้ำ)</option>
             <option value="NEW">New (ลูกค้าใหม่)</option>
             <option value="EXISTING">Existing (ลูกค้าเก่า)</option>
             <option value="CONTACTED">Contacted (ติดต่อแล้ว)</option>
@@ -256,8 +270,17 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
                   >
                     <td className="py-3.5 px-3 text-slate-400 font-mono text-[11px]">{globalIdx}.</td>
                     <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
+                      <div className="font-bold text-slate-900 group-hover:text-blue-700 transition-colors flex items-center gap-1.5">
                         {cust.companyName}
+                        {(cust.repeatStatus === 'NOT_APPLICABLE' ||
+                          (Number(cust.totalOrdersCount || 0) === 0 &&
+                            cust.status !== 'WON' &&
+                            cust.status !== 'EXISTING' &&
+                            (!cust.avgReorderCycleDays || cust.avgReorderCycleDays === 0))) && (
+                          <span className="bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded text-[9px] font-bold">
+                            💼 ดีล
+                          </span>
+                        )}
                       </div>
                       <div className="text-[10px] text-slate-400">
                         Tier: <span className="font-semibold text-slate-600">{cust.tier}</span> | สินค้า: {cust.interestedProducts}

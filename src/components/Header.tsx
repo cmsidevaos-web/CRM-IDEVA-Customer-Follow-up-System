@@ -13,10 +13,12 @@ import {
   User,
   UserCheck,
   Users,
-  X
+  X,
+  LogOut,
+  Crown
 } from 'lucide-react';
 import React, { useState } from 'react';
-import { NotificationItem, UserProfile, ViewTab } from '../types';
+import { AppUser, NotificationItem, UserProfile, ViewTab } from '../types';
 
 export const AVAILABLE_USERS: UserProfile[] = [
   {
@@ -54,9 +56,11 @@ interface HeaderProps {
   setCurrentTab?: (tab: ViewTab) => void;
   notifications?: NotificationItem[];
   onMarkNotificationsRead?: () => void;
-  currentUser?: UserProfile;
-  user?: UserProfile;
-  onSwitchUser?: (user: UserProfile) => void;
+  currentUser?: UserProfile | AppUser;
+  user?: UserProfile | AppUser;
+  onSwitchUser?: (user: any) => void;
+  onLogout?: () => void;
+  availableUsers?: AppUser[];
   selectedSalesOwner?: string;
   setSelectedSalesOwner?: (sales: string) => void;
   dateRange?: string;
@@ -76,7 +80,9 @@ export const Header: React.FC<HeaderProps> = ({
   onMarkNotificationsRead = () => {},
   currentUser,
   user,
-  onSwitchUser = (_u: UserProfile) => {},
+  onSwitchUser = (_u: any) => {},
+  onLogout,
+  availableUsers,
   selectedSalesOwner = 'ALL',
   setSelectedSalesOwner = (_sales: string) => {},
   dateRange = 'ALL',
@@ -99,12 +105,13 @@ export const Header: React.FC<HeaderProps> = ({
     CUSTOMERS: 'Customer List - รายชื่อลูกค้าทั้งหมด',
     CUSTOMER_PROFILE: selectedCustomerName ? `Customer Profile - ${selectedCustomerName}` : 'Customer Profile - ข้อมูลลูกค้า',
     ACTIVITIES: 'Activities - ประวัติกิจกรรมและการติดต่อ',
-    CALENDAR: 'Calendar - ปฏิทินงานและกำหนดการติดตาม',
+    CALENDAR: 'Calendar - ปฏิทินงานและกำหนดการติดตาม (วันนี้)',
     LEADS: 'Leads Pipeline - ขั้นตอนการบริหารโอกาสขาย',
     ORDERS: 'Orders - ประวัติการสั่งซื้อและจัดส่ง',
     AFTER_SALES: 'After Sales - บริการหลังการขายและติดตามความพึงพอใจ',
     REPEAT_ORDERS: 'Repeat Order CRM - ระบบติดตามการซื้อซ้ำ',
     REPORTS: 'Reports - รายงานและสถิติต่างๆ',
+    USERS: 'User Management - จัดการผู้ใช้งานและสิทธิ์การเข้าถึง (RBAC)',
     USER_MANUAL: 'User Manual - คู่มือการใช้งานระบบแบบละเอียด',
     SETTINGS: 'Settings - ตั้งค่าระบบและสิทธิ์การใช้งาน',
   };
@@ -282,17 +289,28 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center space-x-2 pl-2 sm:pl-3 border-l border-slate-200 hover:opacity-80 transition-opacity text-left"
             title="คลิกเพื่อสลับบัญชีผู้ใช้งาน / ผู้รับผิดชอบ (Role Switcher)"
           >
-            <div
-              className={`w-9 h-9 rounded-xl text-white flex items-center justify-center font-bold text-sm shadow-xs ${
-                activeUser.role === 'ADMIN'
-                  ? 'bg-rose-700'
-                  : activeUser.role === 'MANAGER'
-                  ? 'bg-indigo-700'
-                  : 'bg-blue-800'
-              }`}
-            >
-              {activeUser.name ? activeUser.name.charAt(2) || 'S' : 'S'}
-            </div>
+            {activeUser.avatarUrl ? (
+              <img
+                src={activeUser.avatarUrl}
+                alt={activeUser.name}
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+                className="w-9 h-9 rounded-xl object-cover border border-slate-200 shadow-xs flex-shrink-0"
+              />
+            ) : (
+              <div
+                className={`w-9 h-9 rounded-xl text-white flex items-center justify-center font-bold text-sm shadow-xs flex-shrink-0 ${
+                  activeUser.role === 'ADMIN'
+                    ? 'bg-rose-700'
+                    : activeUser.role === 'MANAGER'
+                    ? 'bg-indigo-700'
+                    : 'bg-blue-800'
+                }`}
+              >
+                {activeUser.name ? activeUser.name.charAt(0) || 'S' : 'S'}
+              </div>
+            )}
             <div className="hidden xl:block text-left">
               <div className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[120px]">
                 {activeUser.name}
@@ -316,19 +334,24 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* User Switcher Dropdown */}
           {showUserMenu && (
-            <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 py-3 z-50 text-xs animate-in fade-in slide-in-from-top-2">
-              <div className="px-4 pb-2 border-b border-slate-100">
-                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                  <Users size={15} className="text-blue-600" /> จำลองเข้าสู่ระบบตามรหัสเซลล์ / แอดมิน
-                </span>
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  เลือกผู้ใช้งานเพื่อทดสอบการแยกสิทธิ์และการแสดงผล Dashboard ตามเซลล์
-                </p>
+            <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 py-3 z-50 text-xs animate-in fade-in slide-in-from-top-2">
+              <div className="px-4 pb-2 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                    <Users size={15} className="text-blue-600" /> สลับผู้ใช้งาน (Switch User)
+                  </span>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    ทดสอบการเข้าถึงตามบทบาทและสิทธิ์ (RBAC)
+                  </p>
+                </div>
               </div>
 
-              <div className="py-1 divide-y divide-slate-50">
-                {AVAILABLE_USERS.map((usr) => {
+              <div className="py-1 divide-y divide-slate-50 max-h-72 overflow-y-auto">
+                {(availableUsers && availableUsers.length > 0 ? availableUsers : AVAILABLE_USERS).map((usr: any) => {
                   const isCurrent = usr.id === activeUser.id;
+                  const isMaster = usr.role === 'MASTER_ADMIN';
+                  const isAdmin = usr.role === 'ADMIN';
+
                   return (
                     <div
                       key={usr.id}
@@ -340,13 +363,21 @@ export const Header: React.FC<HeaderProps> = ({
                         isCurrent ? 'bg-blue-50/60 font-bold' : ''
                       }`}
                     >
-                      <div>
-                        <div className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
-                          {usr.name}
-                          {usr.role === 'ADMIN' && <Shield size={12} className="text-rose-600" />}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          สิทธิ์: {usr.role} {usr.salesOwnerTag ? `(${usr.salesOwnerTag})` : ''}
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          src={usr.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                          alt={usr.name}
+                          className="w-7 h-7 rounded-lg object-cover border border-slate-200"
+                        />
+                        <div>
+                          <div className="text-xs font-semibold text-slate-800 flex items-center gap-1">
+                            {usr.name}
+                            {isMaster && <Crown size={12} className="text-amber-500 fill-amber-500" />}
+                            {isAdmin && <Shield size={11} className="text-rose-600" />}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {usr.position || usr.role} {usr.salesOwnerTag ? `• ${usr.salesOwnerTag}` : ''}
+                          </div>
                         </div>
                       </div>
                       {isCurrent && (
@@ -359,10 +390,20 @@ export const Header: React.FC<HeaderProps> = ({
                 })}
               </div>
 
-              <div className="pt-2 px-4 border-t border-slate-100 text-[10px] text-slate-500">
-                💡 <strong>Sales Login:</strong> จะเห็นเฉพาะงานและลูกค้าของตนเอง<br />
-                👑 <strong>Admin Login:</strong> สามารถดูงานของทุกคนในบริษัทได้
-              </div>
+              {/* Logout Action */}
+              {onLogout && (
+                <div className="pt-2 px-3 border-t border-slate-100">
+                  <button
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      onLogout();
+                    }}
+                    className="w-full py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <LogOut size={14} /> ออกจากระบบ (Sign Out)
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

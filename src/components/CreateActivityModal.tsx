@@ -154,10 +154,10 @@ export const CreateActivityModal: React.FC<CreateActivityModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 animate-in fade-in">
-      <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto animate-in zoom-in-95 flex flex-col">
-        {/* Modal Header */}
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-20">
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 md:p-6 overflow-hidden animate-in fade-in">
+      <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
+        {/* Modal Fixed Header */}
+        <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-white z-10">
           <div className="flex items-center space-x-2.5">
             <div className="w-9 h-9 rounded-xl bg-blue-600/10 text-blue-600 flex items-center justify-center">
               <Clock size={20} />
@@ -172,13 +172,15 @@ export const CreateActivityModal: React.FC<CreateActivityModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
           >
             <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-4 text-xs">
+        {/* Scrollable Form Body */}
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="p-5 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1 overscroll-contain">
           {/* Customer Search & Filter Selection Box */}
           <div className="relative" ref={dropdownRef}>
             <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between">
@@ -414,25 +416,26 @@ export const CreateActivityModal: React.FC<CreateActivityModalProps> = ({
               className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 placeholder:text-slate-400"
             />
           </div>
+        </div>
 
-          {/* Form Actions */}
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-end space-x-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors"
-            >
-              ยกเลิก
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95"
-            >
-              บันทึกกิจกรรม
-            </button>
-          </div>
-        </form>
-      </div>
+        {/* Fixed Footer */}
+        <div className="p-4 sm:px-6 bg-slate-50/90 border-t border-slate-100 flex items-center justify-end space-x-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+          >
+            ยกเลิก
+          </button>
+          <button
+            type="submit"
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+          >
+            บันทึกกิจกรรม
+          </button>
+        </div>
+      </form>
     </div>
-  );
+  </div>
+);
 };

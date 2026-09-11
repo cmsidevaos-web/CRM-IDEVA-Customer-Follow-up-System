@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowRight,
   BarChart3,
+  Briefcase,
   Calendar,
   CheckCircle2,
   Clock,
@@ -55,17 +56,46 @@ export const RepeatOrderView: React.FC<RepeatOrderViewProps> = ({
       (c.contactName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (c.interestedProducts || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesStatus =
-      repeatStatusFilter === 'ALL' || c.repeatStatus === repeatStatusFilter;
+    const isDeal =
+      c.repeatStatus === 'NOT_APPLICABLE' ||
+      (Number(c.totalOrdersCount || 0) === 0 &&
+        c.status !== 'WON' &&
+        c.status !== 'EXISTING' &&
+        (!c.avgReorderCycleDays || c.avgReorderCycleDays === 0));
+
+    let matchesStatus = true;
+    if (repeatStatusFilter === 'NOT_APPLICABLE') {
+      matchesStatus = isDeal || c.repeatStatus === 'NOT_APPLICABLE';
+    } else if (repeatStatusFilter === 'ACTIVE_REPEAT') {
+      matchesStatus = !isDeal && c.repeatStatus !== 'NOT_APPLICABLE';
+    } else if (repeatStatusFilter !== 'ALL') {
+      matchesStatus = c.repeatStatus === repeatStatusFilter && !isDeal;
+    }
+
     const matchesTier = tierFilter === 'ALL' || c.tier === tierFilter;
 
     return matchesSearch && matchesStatus && matchesTier;
   });
 
   // KPI Calculations
-  const upcomingCount = safeCustomers.filter((c) => c.repeatStatus === 'UPCOMING').length || 18;
-  const dueCount = safeCustomers.filter((c) => c.repeatStatus === 'DUE').length || 6;
-  const overdueCount = safeCustomers.filter((c) => c.repeatStatus === 'OVERDUE').length || 12;
+  const inDealCount = safeCustomers.filter(
+    (c) =>
+      c.repeatStatus === 'NOT_APPLICABLE' ||
+      (Number(c.totalOrdersCount || 0) === 0 &&
+        c.status !== 'WON' &&
+        c.status !== 'EXISTING' &&
+        (!c.avgReorderCycleDays || c.avgReorderCycleDays === 0))
+  ).length;
+
+  const upcomingCount = safeCustomers.filter(
+    (c) => c.repeatStatus === 'UPCOMING' && c.repeatStatus !== 'NOT_APPLICABLE'
+  ).length || 18;
+  const dueCount = safeCustomers.filter(
+    (c) => c.repeatStatus === 'DUE' && c.repeatStatus !== 'NOT_APPLICABLE'
+  ).length || 6;
+  const overdueCount = safeCustomers.filter(
+    (c) => c.repeatStatus === 'OVERDUE' && c.repeatStatus !== 'NOT_APPLICABLE'
+  ).length || 12;
   const expectedRevenue = 750000;
 
   // Donut chart data for repeat orders
@@ -92,7 +122,14 @@ export const RepeatOrderView: React.FC<RepeatOrderViewProps> = ({
     { name: 'PQR Cosmetic Co., Ltd.', daysOver: 35, risk: 'เสี่ยงปานกลาง', revenue: 35000, custId: 'CUST-006' },
   ];
 
-  const renderRepeatBadge = (status?: RepeatOrderStatus, label?: string) => {
+  const renderRepeatBadge = (status?: RepeatOrderStatus, isDeal?: boolean) => {
+    if (status === 'NOT_APPLICABLE' || isDeal) {
+      return (
+        <span className="bg-amber-50 text-amber-900 border border-amber-200 font-bold px-2.5 py-1 rounded-md text-xs flex items-center gap-1.5 whitespace-nowrap">
+          <span className="w-2 h-2 rounded-full bg-amber-500"></span> 💼 อยู่ระหว่างดีล
+        </span>
+      );
+    }
     switch (status) {
       case 'OVERDUE':
         return (
@@ -141,52 +178,64 @@ export const RepeatOrderView: React.FC<RepeatOrderViewProps> = ({
       </div>
 
       {/* KPI Cards Top Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
         {/* Card 1: Upcoming */}
-        <div className="bg-white rounded-2xl p-5 border border-blue-200 soft-shadow card-hover flex items-center justify-between">
+        <div className="bg-white rounded-2xl p-4 border border-blue-200 soft-shadow card-hover flex items-center justify-between">
           <div>
             <div className="text-xs font-semibold text-blue-600 mb-1">Upcoming (ก่อนกำหนด)</div>
             <div className="text-2xl font-extrabold text-slate-900">{upcomingCount} <span className="text-xs font-normal text-slate-400">ราย</span></div>
-            <div className="text-[10px] text-slate-400 mt-1">ก่อนวันคาดว่าจะซื้อซ้ำ 1-15 วัน</div>
+            <div className="text-[10px] text-slate-400 mt-1">ก่อนวันคาดว่าจะซื้อซ้ำ</div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
-            <Clock size={24} />
+          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+            <Clock size={20} />
           </div>
         </div>
 
         {/* Card 2: Due */}
-        <div className="bg-white rounded-2xl p-5 border border-amber-200 soft-shadow card-hover flex items-center justify-between bg-gradient-to-br from-amber-50/40 to-white">
+        <div className="bg-white rounded-2xl p-4 border border-amber-200 soft-shadow card-hover flex items-center justify-between bg-gradient-to-br from-amber-50/40 to-white">
           <div>
             <div className="text-xs font-semibold text-amber-700 mb-1">Due (ถึงกำหนด)</div>
             <div className="text-2xl font-extrabold text-amber-700">{dueCount} <span className="text-xs font-normal text-slate-400">ราย</span></div>
             <div className="text-[10px] text-amber-600 mt-1">ถึงกำหนดซื้อซ้ำ ± 3 วัน</div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
-            <AlertCircle size={24} />
+          <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
+            <AlertCircle size={20} />
           </div>
         </div>
 
         {/* Card 3: Overdue */}
-        <div className="bg-white rounded-2xl p-5 border border-rose-200 soft-shadow card-hover flex items-center justify-between bg-gradient-to-br from-rose-50/40 to-white">
+        <div className="bg-white rounded-2xl p-4 border border-rose-200 soft-shadow card-hover flex items-center justify-between bg-gradient-to-br from-rose-50/40 to-white">
           <div>
             <div className="text-xs font-semibold text-rose-600 mb-1">Overdue (เกินกำหนด)</div>
             <div className="text-2xl font-extrabold text-rose-600">{overdueCount} <span className="text-xs font-normal text-slate-400">ราย</span></div>
-            <div className="text-[10px] text-rose-500 mt-1">เกินกำหนดซื้อซ้ำ 4 วันขึ้นไป</div>
+            <div className="text-[10px] text-rose-500 mt-1">เกินกำหนด 4 วันขึ้นไป</div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-xs">
-            <AlertTriangle size={24} />
+          <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shadow-xs">
+            <AlertTriangle size={20} />
           </div>
         </div>
 
-        {/* Card 4: Expected Revenue */}
-        <div className="bg-white rounded-2xl p-5 border border-emerald-200 soft-shadow card-hover flex items-center justify-between bg-gradient-to-br from-emerald-50/30 to-white">
+        {/* Card 4: In Deal Stage */}
+        <div className="bg-white rounded-2xl p-4 border border-amber-300 soft-shadow card-hover flex items-center justify-between bg-gradient-to-br from-amber-50/60 to-white">
+          <div>
+            <div className="text-xs font-semibold text-amber-900 mb-1">อยู่ระหว่างดีล</div>
+            <div className="text-2xl font-extrabold text-amber-800">{inDealCount} <span className="text-xs font-normal text-slate-400">ราย</span></div>
+            <div className="text-[10px] text-amber-700 mt-1">ยังไม่ต้องมีข้อมูลซื้อซ้ำ</div>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center shadow-xs">
+            <Briefcase size={20} />
+          </div>
+        </div>
+
+        {/* Card 5: Expected Revenue */}
+        <div className="bg-white rounded-2xl p-4 border border-emerald-200 soft-shadow card-hover flex items-center justify-between bg-gradient-to-br from-emerald-50/30 to-white">
           <div>
             <div className="text-xs font-semibold text-emerald-700 mb-1">ยอดคาดว่าจะขาย</div>
             <div className="text-2xl font-extrabold text-emerald-700">฿{expectedRevenue.toLocaleString()}</div>
-            <div className="text-[10px] text-emerald-600 mt-1">ประเมินจากลูกค้าที่ครบรอบซื้อซ้ำ</div>
+            <div className="text-[10px] text-emerald-600 mt-1">ประเมินจากรอบซื้อซ้ำ</div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
-            <DollarSign size={24} />
+          <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+            <DollarSign size={20} />
           </div>
         </div>
       </div>
@@ -213,12 +262,14 @@ export const RepeatOrderView: React.FC<RepeatOrderViewProps> = ({
             <select
               value={repeatStatusFilter}
               onChange={(e) => setRepeatStatusFilter(e.target.value)}
-              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 font-medium focus:outline-none"
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 font-medium focus:outline-none cursor-pointer"
             >
               <option value="ALL">สถานะติดตาม: ทั้งหมด</option>
+              <option value="ACTIVE_REPEAT">เฉพาะลูกค้าที่ต้องติดตามซื้อซ้ำ</option>
               <option value="UPCOMING">Upcoming (ก่อนกำหนด)</option>
               <option value="DUE">Due (ถึงกำหนด)</option>
               <option value="OVERDUE">Overdue (เกินกำหนด)</option>
+              <option value="NOT_APPLICABLE">💼 อยู่ระหว่างดีล (ยังไม่มีข้อมูลซื้อซ้ำ)</option>
             </select>
           </div>
         </div>
@@ -247,35 +298,68 @@ export const RepeatOrderView: React.FC<RepeatOrderViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                repeatCustomers.slice(0, 15).map((cust) => (
-                  <tr
-                    key={cust.id}
-                    className="hover:bg-amber-50/40 transition-colors cursor-pointer"
-                    onClick={() => onSelectCustomer(cust)}
-                  >
-                    <td className="py-3 px-3">{renderRepeatBadge(cust.repeatStatus)}</td>
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-slate-900">{cust.companyName}</div>
-                      <div className="text-[10px] text-slate-400">ผู้ติดต่อ: {cust.contactName}</div>
-                    </td>
-                    <td className="py-3 px-3 font-medium text-slate-800">{cust.interestedProducts}</td>
-                    <td className="py-3 px-3 text-slate-600">{cust.lastDeliveryDate || cust.lastOrderDate || '10/08/2026'}</td>
-                    <td className="py-3 px-3 font-bold text-slate-700">{cust.avgReorderCycleDays} วัน</td>
-                    <td className="py-3 px-3 font-bold text-blue-700">{cust.nextReorderDate || '09/10/2026'}</td>
-                    <td className="py-3 px-3 font-extrabold text-emerald-700">
-                      ฿{(cust.totalPurchases ? cust.totalPurchases / Math.max(1, cust.totalOrdersCount) : 57000).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </td>
-                    <td className="py-3 px-3 text-slate-600">{cust.salesOwner}</td>
-                    <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => onOpenCreateOrder(cust)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-[11px] shadow-2xs transition-colors"
-                      >
-                        + เปิด Order ใหม่
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                repeatCustomers.slice(0, 15).map((cust) => {
+                  const isDeal =
+                    cust.repeatStatus === 'NOT_APPLICABLE' ||
+                    (Number(cust.totalOrdersCount || 0) === 0 &&
+                      cust.status !== 'WON' &&
+                      cust.status !== 'EXISTING' &&
+                      (!cust.avgReorderCycleDays || cust.avgReorderCycleDays === 0));
+
+                  return (
+                    <tr
+                      key={cust.id}
+                      className="hover:bg-amber-50/40 transition-colors cursor-pointer"
+                      onClick={() => onSelectCustomer(cust)}
+                    >
+                      <td className="py-3 px-3">{renderRepeatBadge(cust.repeatStatus, isDeal)}</td>
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-slate-900">{cust.companyName}</div>
+                        <div className="text-[10px] text-slate-400">ผู้ติดต่อ: {cust.contactName}</div>
+                      </td>
+                      <td className="py-3 px-3 font-medium text-slate-800">{cust.interestedProducts}</td>
+                      <td className="py-3 px-3 text-slate-600">
+                        {isDeal ? (
+                          <span className="text-slate-400 italic">ยังไม่มีคำสั่งซื้อ</span>
+                        ) : (
+                          cust.lastDeliveryDate || cust.lastOrderDate || '-'
+                        )}
+                      </td>
+                      <td className="py-3 px-3 font-bold text-slate-700">
+                        {isDeal ? (
+                          <span className="text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-[10px]">
+                            อยู่ระหว่างดีล
+                          </span>
+                        ) : (
+                          `${cust.avgReorderCycleDays || 0} วัน`
+                        )}
+                      </td>
+                      <td className="py-3 px-3 font-bold text-blue-700">
+                        {isDeal ? (
+                          <span className="text-slate-400 font-normal italic">-</span>
+                        ) : (
+                          cust.nextReorderDate || '-'
+                        )}
+                      </td>
+                      <td className="py-3 px-3 font-extrabold text-emerald-700">
+                        {isDeal ? (
+                          <span className="text-slate-400 font-normal">฿0</span>
+                        ) : (
+                          `฿${(cust.totalPurchases ? cust.totalPurchases / Math.max(1, cust.totalOrdersCount) : 57000).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-slate-600">{cust.salesOwner}</td>
+                      <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => onOpenCreateOrder(cust)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-[11px] shadow-2xs transition-colors"
+                        >
+                          {isDeal ? '+ เปิด First Order' : '+ เปิด Order ใหม่'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

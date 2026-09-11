@@ -12,10 +12,11 @@ import {
   Settings,
   ShoppingBag,
   Users,
-  UserPlus
+  UserPlus,
+  ShieldCheck,
 } from 'lucide-react';
 import React from 'react';
-import { ViewTab } from '../types';
+import { AppUser, UserProfile, ViewTab } from '../types';
 
 interface SidebarProps {
   currentTab?: ViewTab;
@@ -37,6 +38,8 @@ interface SidebarProps {
   reportsCount?: number;
   manualCount?: number;
   settingsCount?: number;
+  usersCount?: number;
+  currentUser?: AppUser | UserProfile;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -59,6 +62,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   reportsCount = 4,
   manualCount = 6,
   settingsCount,
+  usersCount = 5,
+  currentUser,
 }) => {
   const selectedTab = activeTab || currentTab || 'DASHBOARD';
   const handleSelectTab = setActiveTab || setCurrentTab || ((_tab: ViewTab) => {});
@@ -137,6 +142,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: reportsCount,
       badgeColor: 'bg-violet-500/80',
       badgeLabel: 'หมวดรายงาน',
+    },
+    {
+      id: 'USERS' as ViewTab,
+      label: 'จัดการผู้ใช้งาน (Users)',
+      icon: ShieldCheck,
+      badge: usersCount,
+      badgeColor: 'bg-amber-500 font-bold',
+      badgeLabel: 'ผู้ใช้งานและสิทธิ์',
     },
     {
       id: 'USER_MANUAL' as ViewTab,

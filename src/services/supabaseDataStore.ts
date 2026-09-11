@@ -21,6 +21,8 @@ import { documentRepository } from '../repositories/DocumentRepository';
 import { noteRepository } from '../repositories/NoteRepository';
 import { notificationRepository } from '../repositories/NotificationRepository';
 import { telegramRepository } from '../repositories/TelegramRepository';
+import { userRepository, userFromDb, userToDb } from '../repositories/UserRepository';
+import { AppUser } from '../types';
 
 export let isSupabaseConnected = true;
 
@@ -386,3 +388,33 @@ export async function fetchTelegramTopicsFromSupabase(): Promise<TelegramTopic[]
 export async function saveTelegramTopicsSupabase(topicsList: TelegramTopic[]): Promise<TelegramTopic[]> {
   return await telegramRepository.saveTopics(topicsList);
 }
+
+// ==========================================
+// USERS & RBAC SUPABASE API
+// ==========================================
+
+export async function fetchUsersFromSupabase(): Promise<{ data: AppUser[]; fromSupabase: boolean; tableMissing?: boolean; error?: string }> {
+  try {
+    const res = await userRepository.find();
+    return { data: res.users, fromSupabase: res.fromSupabase, tableMissing: res.tableMissing, error: res.error };
+  } catch (e: any) {
+    return { data: [], fromSupabase: false, error: e?.message };
+  }
+}
+
+export async function upsertUserSupabase(user: AppUser): Promise<AppUser> {
+  return await userRepository.save(user);
+}
+
+export async function deleteUserSupabase(id: string): Promise<boolean> {
+  return await userRepository.delete(id);
+}
+
+export async function seedUsersToSupabase(users: AppUser[]): Promise<void> {
+  await userRepository.seedBatch(users);
+}
+
+export async function getUserByUsernameSupabase(username: string): Promise<AppUser | null> {
+  return await userRepository.findByUsername(username);
+}
+

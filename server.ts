@@ -1,9 +1,10 @@
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { buildTelegramCard, defaultTelegramSettings, defaultTelegramTopics, getTopicForType, sendTelegramApiMessage } from './src/services/telegramService';
-import { Activity, Customer, CustomerDocument, InternalNote, NotificationItem, Order, TelegramNotificationLog, TelegramQueueItem, TelegramSettings, TelegramTopic } from './src/types';
+import { Activity, AppUser, Customer, CustomerDocument, InternalNote, NotificationItem, Order, TelegramNotificationLog, TelegramQueueItem, TelegramSettings, TelegramTopic } from './src/types';
 import {
   fetchCustomersFromSupabase,
   upsertCustomerSupabase,
@@ -29,8 +30,14 @@ import {
   seedCustomersToSupabase,
   seedActivitiesToSupabase,
   seedOrdersToSupabase,
+  fetchUsersFromSupabase,
+  upsertUserSupabase,
+  deleteUserSupabase,
+  seedUsersToSupabase,
+  getUserByUsernameSupabase,
   isSupabaseConnected
 } from './src/services/supabaseDataStore';
+import { INITIAL_USERS } from './src/data/defaultUsers';
 import { orderRepository } from './src/repositories/OrderRepository';
 import { customerRepository } from './src/repositories/CustomerRepository';
 
@@ -108,6 +115,20 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json({ limit: '10mb' }));
+
+  // Ensure uploads directory exists
+  const uploadsDir = path.join(process.cwd(), 'uploads', 'avatars');
+  const publicUploadsDir = path.join(process.cwd(), 'public', 'uploads', 'avatars');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  if (!fs.existsSync(publicUploadsDir)) {
+    fs.mkdirSync(publicUploadsDir, { recursive: true });
+  }
+
+  // Serve static files from uploads
+  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+  app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
 
   // --- API ROUTES ---
   app.get('/api/health', (req, res) => {
@@ -212,7 +233,25 @@ async function startServer() {
   app.post('/api/customers', async (req, res) => {
     try {
       const { data: rawCustomers } = await fetchCustomersFromSupabase();
-      const nextId = req.body.id || `CUST-${String(rawCustomers.length + 1).padStart(3, '0')}`;
+      
+      // Compute safe, unique, non-colliding ID
+      let nextId = req.body.id;
+      if (!nextId || rawCustomers.some((c) => c.id === nextId)) {
+        let maxNum = 0;
+        for (const c of rawCustomers) {
+          const match = String(c.id || '').match(/(\d+)/);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > maxNum) maxNum = num;
+          }
+        }
+        let nextNum = maxNum + 1;
+        while (rawCustomers.some((c) => c.id === `CUST-${String(nextNum).padStart(3, '0')}`)) {
+          nextNum++;
+        }
+        nextId = `CUST-${String(nextNum).padStart(3, '0')}`;
+      }
+
       const newCustomer: Customer = {
         id: nextId,
         companyName: req.body.companyName || '',
@@ -233,7 +272,7 @@ async function startServer() {
         nextAction: req.body.nextAction || req.body.next_action || 'โทรสอบถามข้อมูลเบื้องต้น',
         totalPurchases: Number(req.body.totalPurchases || 0),
         totalOrdersCount: Number(req.body.totalOrdersCount || 0),
-        avgReorderCycleDays: Number(req.body.avgReorderCycleDays || 60),
+        avgReorderCycleDays: req.body.avgReorderCycleDays !== undefined ? Number(req.body.avgReorderCycleDays) : 60,
         repeatStatus: req.body.repeatStatus || 'UPCOMING',
         riskStatus: req.body.riskStatus || 'NORMAL',
         createdAt: req.body.createdAt || new Date().toISOString().split('T')[0],
@@ -296,10 +335,22 @@ async function startServer() {
   app.post('/api/activities', async (req, res) => {
     try {
       const { data: activities } = await fetchActivitiesFromSupabase();
+      let maxActNum = 0;
+      for (const a of activities) {
+        const match = String(a.id || '').match(/(\d+)/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxActNum) maxActNum = num;
+        }
+      }
+      const actId = req.body.id && !activities.some((a) => a.id === req.body.id)
+        ? req.body.id
+        : `ACT-${String(maxActNum + 1).padStart(4, '0')}`;
+
       const newActivity: Activity = {
-        id: `ACT-${String(activities.length + 1).padStart(4, '0')}`,
+        id: actId,
         ...req.body,
-        createdAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        createdAt: req.body.createdAt || new Date().toISOString().replace('T', ' ').slice(0, 16),
       };
 
       const savedActivity = await addActivitySupabase(newActivity);
@@ -391,8 +442,14 @@ async function startServer() {
       }
 
       const existingOrders = await orderRepository.find();
+      const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const uniqueSuffix = `${String(existingOrders.length + 1).padStart(3, '0')}-${Date.now().toString().slice(-3)}`;
+      const orderId = body.id && !existingOrders.some((o) => o.id === body.id)
+        ? body.id
+        : `ORD-${datePrefix}-${uniqueSuffix}`;
+
       const newOrder: Order = {
-        id: body.id || `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(existingOrders.length + 1).padStart(3, '0')}`,
+        id: orderId,
         customerId: body.customerId || body.customer_id || '',
         customerName: body.customerName || body.customer_name || 'Customer',
         orderDate: body.orderDate || body.order_date || new Date().toISOString().split('T')[0],
@@ -781,6 +838,312 @@ async function startServer() {
       res.json({ success: true, message: 'Document deleted successfully' });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || 'Error deleting document' });
+    }
+  });
+
+  // ==========================================
+  // USERS & RBAC API ENDPOINTS
+  // ==========================================
+
+  // GET All Users
+  app.get('/api/users', async (req, res) => {
+    try {
+      const result = await fetchUsersFromSupabase();
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || 'Error fetching users', users: INITIAL_USERS, fromSupabase: false });
+    }
+  });
+
+  // POST Create User
+  app.post('/api/users', async (req, res) => {
+    try {
+      const body = req.body;
+      const newUser: AppUser = {
+        id: body.id || `USER-${Date.now()}`,
+        username: body.username || body.user_login || `user_${Date.now()}`,
+        password: body.password || '123456',
+        firstName: body.firstName || body.first_name || '',
+        lastName: body.lastName || body.last_name || '',
+        name: body.name || body.full_name || `${body.firstName || ''} ${body.lastName || ''}`.trim(),
+        email: body.email || `${body.username || 'user'}@ideva.co.th`,
+        position: body.position || 'เจ้าหน้าที่ฝ่ายขาย',
+        department: body.department || 'ฝ่ายขาย (Sales)',
+        avatarUrl: body.avatarUrl || body.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        role: body.role || 'SALES',
+        status: body.status || 'ACTIVE',
+        salesOwnerTag: body.salesOwnerTag || body.sales_owner_tag || (body.role === 'SALES' ? body.name : 'ALL'),
+        permissions: body.permissions,
+        createdAt: body.createdAt || new Date().toISOString().split('T')[0],
+        updatedAt: new Date().toISOString().split('T')[0],
+      };
+
+      const saved = await upsertUserSupabase(newUser);
+      res.status(201).json({ success: true, user: saved });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || 'Error creating user' });
+    }
+  });
+
+  // PUT Update User
+  app.put('/api/users/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const body = req.body;
+      const updatedUser: AppUser = {
+        ...body,
+        id,
+        updatedAt: new Date().toISOString().split('T')[0],
+      };
+      const saved = await upsertUserSupabase(updatedUser);
+      res.json({ success: true, user: saved });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || 'Error updating user' });
+    }
+  });
+
+  // DELETE User
+  app.delete('/api/users/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      // Prevent deleting Master Admin
+      if (id === 'USER-MASTER-ADMIN') {
+        return res.status(400).json({ error: 'ไม่สามารถลบ Master Admin (ผู้ดูแลระบบสูงสุด) ได้' });
+      }
+      await deleteUserSupabase(id);
+      res.json({ success: true, message: 'ลบผู้ใช้งานสำเร็จ' });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || 'Error deleting user' });
+    }
+  });
+
+  // SEED Users
+  app.post('/api/users/seed', async (req, res) => {
+    try {
+      const usersToSeed = req.body.users && Array.isArray(req.body.users) ? req.body.users : INITIAL_USERS;
+      await seedUsersToSupabase(usersToSeed);
+      res.json({ success: true, count: usersToSeed.length });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || 'Error seeding users' });
+    }
+  });
+
+  // POST Upload Avatar (Store real employee photo and return public URL link)
+  app.post('/api/upload/avatar', async (req, res) => {
+    try {
+      const { fileData, fileName } = req.body;
+      if (!fileData) {
+        return res.status(400).json({ success: false, error: 'กรุณาระบุข้อมูลรูปภาพ (fileData)' });
+      }
+
+      let buffer: Buffer;
+      let ext = 'png';
+
+      const matches = String(fileData).match(/^data:image\/([a-zA-Z0-9-+]+);base64,(.+)$/);
+      if (matches) {
+        const rawType = matches[1].toLowerCase();
+        ext = rawType === 'jpeg' ? 'jpg' : rawType === 'svg+xml' ? 'svg' : rawType;
+        buffer = Buffer.from(matches[2], 'base64');
+      } else if (fileData.startsWith('http://') || fileData.startsWith('https://')) {
+        // Direct URL link provided
+        return res.json({
+          success: true,
+          url: fileData,
+          fileName: fileName || 'avatar-link',
+          isLink: true,
+        });
+      } else {
+        buffer = Buffer.from(fileData, 'base64');
+      }
+
+      // Generate clean unique filename
+      const cleanBase = (fileName || 'employee')
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .substring(0, 30);
+      const uniqueName = `avatar-${Date.now()}-${Math.random().toString(36).substring(2, 7)}-${cleanBase}.${ext}`;
+
+      const filePath = path.join(uploadsDir, uniqueName);
+      const publicFilePath = path.join(publicUploadsDir, uniqueName);
+
+      fs.writeFileSync(filePath, buffer);
+      try {
+        fs.writeFileSync(publicFilePath, buffer);
+      } catch (e) {
+        // Public copy is optional for dev mode
+      }
+
+      const fileUrl = `/uploads/avatars/${uniqueName}`;
+      res.json({
+        success: true,
+        url: fileUrl,
+        fileName: uniqueName,
+        sizeBytes: buffer.length,
+        message: 'อัปโหลดรูปภาพพนักงานสำเร็จและจัดเก็บเป็นลิงก์ URL เรียบร้อย',
+      });
+    } catch (err: any) {
+      console.error('Error in /api/upload/avatar:', err);
+      res.status(500).json({ success: false, error: err?.message || 'เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ' });
+    }
+  });
+
+  // POST Login Authentication
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      if (!username) {
+        return res.status(400).json({ success: false, message: 'กรุณาระบุชื่อผู้ใช้งาน' });
+      }
+
+      const user = await getUserByUsernameSupabase(username);
+      if (!user) {
+        return res.status(401).json({ success: false, message: 'ไม่พบบัญชีผู้ใช้งานนี้ในระบบ' });
+      }
+
+      if (user.status === 'SUSPENDED' || user.status === 'INACTIVE') {
+        return res.status(403).json({ success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ' });
+      }
+
+      if (password && user.password && user.password !== password) {
+        return res.status(401).json({ success: false, message: 'รหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง' });
+      }
+
+      // Update last login
+      user.lastLoginAt = new Date().toISOString();
+      await upsertUserSupabase(user).catch(() => {});
+
+      res.json({ success: true, user, message: 'เข้าสู่ระบบสำเร็จ' });
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e?.message || 'Login error' });
+    }
+  });
+
+  // ==========================================
+  // BACKUP & EXPORT ALL SYSTEM DATA (JSON)
+  // ==========================================
+  app.get('/api/backup', async (req, res) => {
+    try {
+      const { data: customers } = await fetchCustomersFromSupabase();
+      const { data: activities } = await fetchActivitiesFromSupabase();
+      const { data: orders } = await fetchOrdersFromSupabase();
+      const documents = await fetchDocumentsFromSupabase();
+      const notes = await fetchNotesFromSupabase();
+      const { data: users } = await fetchUsersFromSupabase();
+      const telegramSettings = await fetchTelegramSettingsFromSupabase();
+      const telegramTopics = await fetchTelegramTopicsFromSupabase();
+      const telegramLogs = await fetchTelegramLogsFromSupabase();
+      const telegramQueue = await fetchTelegramQueueFromSupabase();
+
+      const timestamp = new Date().toISOString();
+      const dateStr = timestamp.split('T')[0];
+      const timeStr = timestamp.split('T')[1].replace(/[:.]/g, '-').slice(0, 8);
+      const filename = `crm_backup_ideva_${dateStr}_${timeStr}.json`;
+
+      const backupData = {
+        metadata: {
+          systemName: 'IDEVA CRM & Customer Intelligence Platform',
+          backupDate: timestamp,
+          version: '2.5.0',
+          environment: 'production',
+          totalRecords: {
+            customers: customers.length,
+            activities: activities.length,
+            orders: orders.length,
+            documents: documents.length,
+            notes: notes.length,
+            users: users.length,
+            telegramLogs: telegramLogs.length,
+            telegramQueue: telegramQueue.length,
+          },
+        },
+        customers,
+        activities,
+        orders,
+        documents,
+        notes,
+        users,
+        telegram: {
+          settings: telegramSettings,
+          topics: telegramTopics,
+          logs: telegramLogs,
+          queue: telegramQueue,
+        },
+      };
+
+      if (req.query.download === 'true') {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        return res.send(JSON.stringify(backupData, null, 2));
+      }
+
+      res.json({
+        success: true,
+        filename,
+        backupData,
+      });
+    } catch (err: any) {
+      console.error('[GET /api/backup error]:', err);
+      res.status(500).json({ success: false, error: err?.message || 'เกิดข้อผิดพลาดในการสำรองข้อมูล' });
+    }
+  });
+
+  app.post('/api/backup', async (req, res) => {
+    try {
+      const { data: customers } = await fetchCustomersFromSupabase();
+      const { data: activities } = await fetchActivitiesFromSupabase();
+      const { data: orders } = await fetchOrdersFromSupabase();
+      const documents = await fetchDocumentsFromSupabase();
+      const notes = await fetchNotesFromSupabase();
+      const { data: users } = await fetchUsersFromSupabase();
+      const telegramSettings = await fetchTelegramSettingsFromSupabase();
+      const telegramTopics = await fetchTelegramTopicsFromSupabase();
+      const telegramLogs = await fetchTelegramLogsFromSupabase();
+      const telegramQueue = await fetchTelegramQueueFromSupabase();
+
+      const timestamp = new Date().toISOString();
+      const dateStr = timestamp.split('T')[0];
+      const timeStr = timestamp.split('T')[1].replace(/[:.]/g, '-').slice(0, 8);
+      const filename = `crm_backup_ideva_${dateStr}_${timeStr}.json`;
+
+      const backupData = {
+        metadata: {
+          systemName: 'IDEVA CRM & Customer Intelligence Platform',
+          backupDate: timestamp,
+          version: '2.5.0',
+          environment: 'production',
+          totalRecords: {
+            customers: customers.length,
+            activities: activities.length,
+            orders: orders.length,
+            documents: documents.length,
+            notes: notes.length,
+            users: users.length,
+            telegramLogs: telegramLogs.length,
+            telegramQueue: telegramQueue.length,
+          },
+        },
+        customers,
+        activities,
+        orders,
+        documents,
+        notes,
+        users,
+        telegram: {
+          settings: telegramSettings,
+          topics: telegramTopics,
+          logs: telegramLogs,
+          queue: telegramQueue,
+        },
+      };
+
+      res.json({
+        success: true,
+        filename,
+        backupData,
+      });
+    } catch (err: any) {
+      console.error('[POST /api/backup error]:', err);
+      res.status(500).json({ success: false, error: err?.message || 'เกิดข้อผิดพลาดในการสำรองข้อมูล' });
     }
   });
 
