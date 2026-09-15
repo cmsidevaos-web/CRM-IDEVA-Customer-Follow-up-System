@@ -26,6 +26,13 @@ import { WorkflowBanner } from './components/WorkflowBanner';
 import { realtimeService } from './services/RealtimeService';
 import { apiClient } from './services/apiClient';
 import { INITIAL_USERS } from './data/defaultUsers';
+import {
+  getStoredTabReadState,
+  markTabItemsRead,
+  computeUnreadCountForItems,
+  computeUnreadCountForCategory,
+  TabReadState,
+} from './utils/unreadTracker';
 
 import {
   Activity,
@@ -120,9 +127,19 @@ export default function App() {
         : [];
       if (userList.length > 0) {
         setUsers(userList);
+        if (currentUser) {
+          const freshCurrent = userList.find(
+            (u) => u.id === currentUser.id || u.username.toLowerCase() === currentUser.username.toLowerCase()
+          );
+          if (freshCurrent) {
+            setCurrentUser(freshCurrent);
+          }
+        }
       }
+      return userList;
     } catch (e) {
       console.error('Error fetching users:', e);
+      return [];
     }
   };
 
@@ -574,34 +591,142 @@ export default function App() {
     ? (notes || []).filter((n) => n.customerId === selectedCustomer.id)
     : [];
 
-  const customerCount = (filteredCustomers || []).length;
-  const activitiesCount = (filteredActivities || []).length;
-  const ordersCount = (filteredOrders || []).length;
-  const leadsCount = (filteredCustomers || []).filter((c) =>
-    ['NEW_LEAD', 'CONTACTED', 'QUOTATION', 'PROPOSAL', 'NEGOTIATION'].includes(c.status)
-  ).length;
-  const calendarCount = (filteredCustomers || []).filter((c) => Boolean(c.nextFollowUpDate)).length;
-  const afterSalesCount = (filteredCustomers || []).filter(
-    (c) => c.status === 'WON' || Number(c.totalPurchases || 0) > 0 || Number(c.totalOrdersCount || 0) > 0
-  ).length;
+  // Tab Read & Unread Status Tracking (Persistent across sessions)
+  const [tabReadState, setTabReadState] = useState<Record<string, TabReadState>>(() =>
+    getStoredTabReadState()
+  );
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayCount = (filteredCustomers || []).filter(
-    (c) => c.nextFollowUpDate === todayStr || c.status === 'FOLLOW_UP'
-  ).length;
-  const overdueCount = (filteredCustomers || []).filter(
-    (c) =>
-      c.status === 'OVERDUE' ||
-      (Boolean(c.nextFollowUpDate) &&
-        (c.nextFollowUpDate || '') < todayStr &&
-        c.status !== 'WON' &&
-        c.status !== 'LOST')
-  ).length;
-  const dueRepeatCount = (filteredCustomers || []).filter(
-    (c) => c.repeatStatus === 'DUE' || c.repeatStatus === 'OVERDUE'
-  ).length;
-  const reportsCount = 4;
-  const manualCount = 6;
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  // When activeTab changes or underlying items update while on that tab, mark current items as read
+  useEffect(() => {
+    if (activeTab === 'APP_GRID') return;
+
+    let currentIds: string[] = [];
+    if (activeTab === 'CUSTOMERS' || activeTab === 'CUSTOMER_PROFILE') {
+      currentIds = (filteredCustomers || []).map((c) => c.id);
+    } else if (activeTab === 'ACTIVITIES') {
+      currentIds = (filteredActivities || []).map((a) => a.id);
+    } else if (activeTab === 'ORDERS') {
+      currentIds = (filteredOrders || []).map((o) => o.id);
+    } else if (activeTab === 'LEADS') {
+      currentIds = (filteredCustomers || [])
+        .filter((c) => ['NEW_LEAD', 'CONTACTED', 'QUOTATION', 'PROPOSAL', 'NEGOTIATION'].includes(c.status))
+        .map((c) => c.id);
+    } else if (activeTab === 'CALENDAR') {
+      currentIds = (filteredCustomers || []).filter((c) => Boolean(c.nextFollowUpDate)).map((c) => c.id);
+    } else if (activeTab === 'AFTER_SALES') {
+      currentIds = (filteredCustomers || [])
+        .filter((c) => c.status === 'WON' || Number(c.totalPurchases || 0) > 0 || Number(c.totalOrdersCount || 0) > 0)
+        .map((c) => c.id);
+    } else if (activeTab === 'REPEAT_ORDERS') {
+      currentIds = (filteredCustomers || [])
+        .filter((c) => c.repeatStatus === 'DUE' || c.repeatStatus === 'OVERDUE')
+        .map((c) => c.id);
+    } else if (activeTab === 'DASHBOARD') {
+      currentIds = (filteredCustomers || [])
+        .filter(
+          (c) =>
+            c.status === 'OVERDUE' ||
+            c.nextFollowUpDate === todayStr ||
+            c.status === 'FOLLOW_UP' ||
+            (Boolean(c.nextFollowUpDate) && (c.nextFollowUpDate || '') < todayStr)
+        )
+        .map((c) => c.id);
+    } else if (activeTab === 'USERS') {
+      currentIds = (users || []).map((u) => u.id);
+    } else if (activeTab === 'REPORTS') {
+      currentIds = ['report-1', 'report-2', 'report-3', 'report-4'];
+    } else if (activeTab === 'USER_MANUAL') {
+      currentIds = ['manual-1', 'manual-2', 'manual-3', 'manual-4', 'manual-5', 'manual-6'];
+    } else if (activeTab === 'SETTINGS') {
+      currentIds = ['settings-main'];
+    }
+
+    const updated = markTabItemsRead(activeTab, currentIds);
+    setTabReadState(updated);
+  }, [activeTab, filteredCustomers, filteredActivities, filteredOrders, users, todayStr]);
+
+  // Unread badge counts (displays only new / unread items that haven't been inspected)
+  const customerCount = useMemo(
+    () => computeUnreadCountForItems('CUSTOMERS', (filteredCustomers || []).map((c) => c.id), tabReadState),
+    [filteredCustomers, tabReadState]
+  );
+  const activitiesCount = useMemo(
+    () => computeUnreadCountForItems('ACTIVITIES', (filteredActivities || []).map((a) => a.id), tabReadState),
+    [filteredActivities, tabReadState]
+  );
+  const ordersCount = useMemo(
+    () => computeUnreadCountForItems('ORDERS', (filteredOrders || []).map((o) => o.id), tabReadState),
+    [filteredOrders, tabReadState]
+  );
+  const leadsCount = useMemo(
+    () =>
+      computeUnreadCountForItems(
+        'LEADS',
+        (filteredCustomers || [])
+          .filter((c) => ['NEW_LEAD', 'CONTACTED', 'QUOTATION', 'PROPOSAL', 'NEGOTIATION'].includes(c.status))
+          .map((c) => c.id),
+        tabReadState
+      ),
+    [filteredCustomers, tabReadState]
+  );
+  const calendarCount = useMemo(
+    () =>
+      computeUnreadCountForItems(
+        'CALENDAR',
+        (filteredCustomers || []).filter((c) => Boolean(c.nextFollowUpDate)).map((c) => c.id),
+        tabReadState
+      ),
+    [filteredCustomers, tabReadState]
+  );
+  const afterSalesCount = useMemo(
+    () =>
+      computeUnreadCountForItems(
+        'AFTER_SALES',
+        (filteredCustomers || [])
+          .filter((c) => c.status === 'WON' || Number(c.totalPurchases || 0) > 0 || Number(c.totalOrdersCount || 0) > 0)
+          .map((c) => c.id),
+        tabReadState
+      ),
+    [filteredCustomers, tabReadState]
+  );
+
+  const dashboardTasks = useMemo(() => {
+    return (filteredCustomers || [])
+      .filter(
+        (c) =>
+          c.status === 'OVERDUE' ||
+          c.nextFollowUpDate === todayStr ||
+          c.status === 'FOLLOW_UP' ||
+          (Boolean(c.nextFollowUpDate) && (c.nextFollowUpDate || '') < todayStr && c.status !== 'WON' && c.status !== 'LOST')
+      )
+      .map((c) => c.id);
+  }, [filteredCustomers, todayStr]);
+
+  const dashboardUnreadCount = useMemo(
+    () => computeUnreadCountForItems('DASHBOARD', dashboardTasks, tabReadState),
+    [dashboardTasks, tabReadState]
+  );
+
+  const overdueCount = dashboardUnreadCount;
+  const todayCount = dashboardUnreadCount;
+
+  const dueRepeatCount = useMemo(
+    () =>
+      computeUnreadCountForItems(
+        'REPEAT_ORDERS',
+        (filteredCustomers || []).filter((c) => c.repeatStatus === 'DUE' || c.repeatStatus === 'OVERDUE').map((c) => c.id),
+        tabReadState
+      ),
+    [filteredCustomers, tabReadState]
+  );
+  const reportsCount = useMemo(() => computeUnreadCountForCategory('REPORTS', 4, tabReadState), [tabReadState]);
+  const manualCount = useMemo(() => computeUnreadCountForCategory('USER_MANUAL', 6, tabReadState), [tabReadState]);
+  const usersCount = useMemo(
+    () => computeUnreadCountForItems('USERS', (users || []).map((u) => u.id), tabReadState),
+    [users, tabReadState]
+  );
 
   // If user is not authenticated, show LoginPage
   if (!isAuthenticated) {
@@ -635,7 +760,7 @@ export default function App() {
         repeatDueCount={dueRepeatCount}
         reportsCount={reportsCount}
         manualCount={manualCount}
-        usersCount={users.length}
+        usersCount={usersCount}
         currentUser={currentUser}
       />
 
@@ -709,6 +834,7 @@ export default function App() {
               dueRepeatCount={dueRepeatCount}
               reportsCount={reportsCount}
               manualCount={manualCount}
+              usersCount={usersCount}
             />
           )}
 
@@ -924,6 +1050,7 @@ export default function App() {
         dueRepeatCount={dueRepeatCount}
         reportsCount={reportsCount}
         manualCount={manualCount}
+        usersCount={usersCount}
         onOpenCreateActivity={() => setIsCreateActivityOpen(true)}
       />
     </div>

@@ -37,7 +37,7 @@ import {
   getUserByUsernameSupabase,
   isSupabaseConnected
 } from './src/services/supabaseDataStore';
-import { INITIAL_USERS } from './src/data/defaultUsers';
+import { INITIAL_USERS, DEFAULT_PERMISSIONS } from './src/data/defaultUsers';
 import { orderRepository } from './src/repositories/OrderRepository';
 import { customerRepository } from './src/repositories/CustomerRepository';
 
@@ -862,33 +862,42 @@ async function startServer() {
     }
   });
 
-  // POST Create User
+  // POST Create or Upsert User
   app.post('/api/users', async (req, res) => {
     try {
-      const body = req.body;
-      const newUser: AppUser = {
+      const body = req.body || {};
+      const firstName = String(body.firstName || body.first_name || '').trim();
+      const lastName = String(body.lastName || body.last_name || '').trim();
+      const fullName = (body.name && String(body.name).trim() !== '')
+        ? String(body.name).trim()
+        : (body.full_name || `${firstName} ${lastName}`.trim() || body.username || 'User');
+
+      const userToSave: AppUser = {
+        ...body,
         id: body.id || `USER-${Date.now()}`,
-        username: body.username || body.user_login || `user_${Date.now()}`,
-        password: body.password || '123456',
-        firstName: body.firstName || body.first_name || '',
-        lastName: body.lastName || body.last_name || '',
-        name: body.name || body.full_name || `${body.firstName || ''} ${body.lastName || ''}`.trim(),
+        username: String(body.username || body.user_login || `user_${Date.now()}`).trim().toLowerCase(),
+        password: String(body.password || '123456'),
+        firstName: firstName || fullName.split(' ')[0] || '',
+        lastName: lastName || fullName.split(' ').slice(1).join(' ') || '',
+        name: fullName,
         email: body.email || `${body.username || 'user'}@ideva.co.th`,
+        phone: body.phone || '',
         position: body.position || 'เจ้าหน้าที่ฝ่ายขาย',
-        department: body.department || 'ฝ่ายขาย (Sales)',
+        department: body.department || 'ฝ่ายขายและการตลาด (Sales)',
         avatarUrl: body.avatarUrl || body.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
         role: body.role || 'SALES',
         status: body.status || 'ACTIVE',
-        salesOwnerTag: body.salesOwnerTag || body.sales_owner_tag || (body.role === 'SALES' ? body.name : 'ALL'),
-        permissions: body.permissions,
+        salesOwnerTag: body.salesOwnerTag || body.sales_owner_tag || (body.role === 'SALES' ? fullName : 'ALL'),
+        permissions: body.permissions || (body.role ? DEFAULT_PERMISSIONS[body.role as keyof typeof DEFAULT_PERMISSIONS] : DEFAULT_PERMISSIONS.SALES),
         createdAt: body.createdAt || new Date().toISOString().split('T')[0],
         updatedAt: new Date().toISOString().split('T')[0],
       };
 
-      const saved = await upsertUserSupabase(newUser);
-      res.status(201).json({ success: true, user: saved });
+      const saved = await upsertUserSupabase(userToSave);
+      res.status(200).json({ success: true, user: saved, data: saved });
     } catch (e: any) {
-      res.status(500).json({ error: e?.message || 'Error creating user' });
+      console.error('[POST /api/users error]:', e);
+      res.status(500).json({ error: e?.message || 'Error saving user' });
     }
   });
 
@@ -896,15 +905,36 @@ async function startServer() {
   app.put('/api/users/:id', async (req, res) => {
     try {
       const { id } = req.params;
-      const body = req.body;
+      const body = req.body || {};
+      const firstName = String(body.firstName || body.first_name || '').trim();
+      const lastName = String(body.lastName || body.last_name || '').trim();
+      const fullName = (body.name && String(body.name).trim() !== '')
+        ? String(body.name).trim()
+        : (body.full_name || `${firstName} ${lastName}`.trim() || body.username || 'User');
+
       const updatedUser: AppUser = {
         ...body,
         id,
+        username: String(body.username || body.user_login || '').trim().toLowerCase(),
+        password: String(body.password || '123456'),
+        firstName: firstName || fullName.split(' ')[0] || '',
+        lastName: lastName || fullName.split(' ').slice(1).join(' ') || '',
+        name: fullName,
+        email: body.email || `${body.username || 'user'}@ideva.co.th`,
+        phone: body.phone || '',
+        position: body.position || 'เจ้าหน้าที่ฝ่ายขาย',
+        department: body.department || 'ฝ่ายขายและการตลาด (Sales)',
+        avatarUrl: body.avatarUrl || body.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        role: body.role || 'SALES',
+        status: body.status || 'ACTIVE',
+        salesOwnerTag: body.salesOwnerTag || body.sales_owner_tag || (body.role === 'SALES' ? fullName : 'ALL'),
+        permissions: body.permissions,
         updatedAt: new Date().toISOString().split('T')[0],
       };
       const saved = await upsertUserSupabase(updatedUser);
-      res.json({ success: true, user: saved });
+      res.json({ success: true, user: saved, data: saved });
     } catch (e: any) {
+      console.error('[PUT /api/users/:id error]:', e);
       res.status(500).json({ error: e?.message || 'Error updating user' });
     }
   });

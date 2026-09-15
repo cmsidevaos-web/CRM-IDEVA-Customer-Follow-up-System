@@ -266,9 +266,9 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="pt-2 px-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-blue-600">
                 <button
                   onClick={onMarkNotificationsRead}
-                  className="hover:underline flex items-center gap-1"
+                  className="hover:underline flex items-center gap-1 font-semibold cursor-pointer"
                 >
-                  <CheckCircle2 size={13} /> ทำชำระเป็นอ่านแล้วทั้งหมด
+                  <CheckCircle2 size={13} /> ทำเครื่องหมายว่าอ่านแล้วทั้งหมด
                 </button>
                 <button
                   onClick={onReseedData}

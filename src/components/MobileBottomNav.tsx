@@ -16,6 +16,7 @@ import {
   Sparkles,
   Users,
   UserPlus,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import { ViewTab } from '../types';
@@ -44,6 +45,7 @@ interface MobileBottomNavProps {
   dueRepeatCount?: number;
   reportsCount?: number;
   manualCount?: number;
+  usersCount?: number;
   settingsCount?: number;
   onOpenCreateActivity?: () => void;
 }
@@ -64,6 +66,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   dueRepeatCount = 0,
   reportsCount = 4,
   manualCount = 6,
+  usersCount = 0,
   settingsCount,
 }) => {
   const [pinnedTabs, setPinnedTabs] = useState<ViewTab[]>(() => {
@@ -164,6 +167,15 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       gradient: 'from-amber-500 to-yellow-600',
       badge: dueRepeatCount,
       badgeColor: dueRepeatCount > 0 ? 'bg-orange-500' : 'bg-amber-600',
+    },
+    {
+      id: 'USERS',
+      label: 'จัดการผู้ใช้งาน (Users)',
+      shortLabel: 'ผู้ใช้',
+      icon: ShieldCheck,
+      gradient: 'from-amber-600 to-orange-600',
+      badge: usersCount,
+      badgeColor: 'bg-amber-600',
     },
     {
       id: 'REPORTS',

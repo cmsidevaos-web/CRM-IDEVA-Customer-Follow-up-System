@@ -2,36 +2,31 @@ import { supabase } from '../services/supabaseClient';
 import { AppUser } from '../types';
 import { INITIAL_USERS, DEFAULT_PERMISSIONS } from '../data/defaultUsers';
 
-export function userToDb(u: AppUser) {
-  const fullName = (u.name && u.name.trim() !== '')
-    ? u.name.trim()
-    : `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username;
-  const nameParts = fullName.split(' ');
-  const firstName = u.firstName || nameParts[0] || fullName;
-  const lastName = u.lastName || nameParts.slice(1).join(' ') || '';
-  const username = String(u.username || '').trim().toLowerCase();
+export function userToDb(u: AppUser | any) {
+  const firstName = String(u.firstName || u.first_name || '').trim();
+  const lastName = String(u.lastName || u.last_name || '').trim();
+  const fullName = (u.name && String(u.name).trim() !== '')
+    ? String(u.name).trim()
+    : (u.full_name || `${firstName} ${lastName}`.trim() || u.username || 'User');
+  const username = String(u.username || u.user_login || '').trim().toLowerCase();
   const password = String(u.password || '123456');
+  const avatar = u.avatarUrl || u.avatar_url || u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80';
 
   return {
     id: String(u.id || `USER-${Date.now()}`),
     username: username,
-    user_login: username,
     password: password,
-    password_hash: password,
-    first_name: firstName,
-    last_name: lastName,
-    full_name: fullName,
     name: fullName,
-    email: u.email || `${username}@ideva.co.th`,
-    phone: u.phone || null,
+    role: String(u.role || 'SALES'),
     position: u.position || 'เจ้าหน้าที่ฝ่ายขาย',
     department: u.department || 'ฝ่ายขายและการตลาด (Sales)',
-    avatar_url: u.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    role: String(u.role || 'SALES'),
+    email: u.email || `${username}@ideva.co.th`,
+    phone: u.phone || null,
+    avatar_url: avatar,
     status: String(u.status || 'ACTIVE'),
-    sales_owner_tag: u.salesOwnerTag || (u.role === 'SALES' ? fullName : 'ALL'),
-    permissions: u.permissions || DEFAULT_PERMISSIONS[u.role] || DEFAULT_PERMISSIONS.SALES,
-    created_at: u.createdAt || new Date().toISOString(),
+    sales_owner_tag: u.salesOwnerTag || u.sales_owner_tag || (u.role === 'SALES' ? fullName : 'ALL'),
+    permissions: u.permissions || (u.role ? DEFAULT_PERMISSIONS[u.role as keyof typeof DEFAULT_PERMISSIONS] : DEFAULT_PERMISSIONS.SALES),
+    created_at: u.createdAt || u.created_at || new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
 }
@@ -101,6 +96,18 @@ export function isTableMissingError(error: any): boolean {
     msg.includes('Invalid path') ||
     msg.includes('404')
   );
+}
+
+function extractMissingColumn(error: any): string | null {
+  if (!error) return null;
+  const msg = error.message || error.details || error.hint || '';
+  const match1 = msg.match(/Could not find the '([^']+)' column/i);
+  if (match1 && match1[1]) return match1[1];
+  const match2 = msg.match(/column "?([^" ]+)"? of relation/i);
+  if (match2 && match2[1]) return match2[1];
+  const match3 = msg.match(/column [^.]+\.([^ ]+) does not exist/i);
+  if (match3 && match3[1]) return match3[1];
+  return null;
 }
 
 const USERS_CACHE_KEY = 'ideva_crm_users_cache';
@@ -212,7 +219,7 @@ export class UserRepository {
   }
 
   async save(user: AppUser): Promise<AppUser> {
-    const dbRow = userToDb(user);
+    let dbRow: Record<string, any> = userToDb(user);
 
     // Update in-memory first for immediate responsive UI
     const existingIdx = this.inMemoryUsers.findIndex(
@@ -225,62 +232,86 @@ export class UserRepository {
     }
     persistStoredUsers(this.inMemoryUsers);
 
-    try {
-      // 1. Try Upsert with onConflict on 'id'
-      const { data, error } = await supabase
-        .from('users')
-        .upsert(dbRow, { onConflict: 'id' })
-        .select();
+    // Attempt to save to Supabase with automatic schema adaptation and retry loop
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        // 1. Try Upsert with onConflict on 'id'
+        const { data, error } = await supabase
+          .from('users')
+          .upsert(dbRow, { onConflict: 'id' })
+          .select();
 
-      if (!error && data && data.length > 0) {
-        this.isTableAvailable = true;
-        const saved = userFromDb(data[0]);
-        // update local cache with returned row
-        if (existingIdx >= 0) {
-          this.inMemoryUsers[existingIdx] = saved;
+        if (!error && data && data.length > 0) {
+          this.isTableAvailable = true;
+          const saved = userFromDb(data[0]);
+          if (existingIdx >= 0) {
+            this.inMemoryUsers[existingIdx] = saved;
+          }
+          persistStoredUsers(this.inMemoryUsers);
+          return saved;
         }
-        persistStoredUsers(this.inMemoryUsers);
-        return saved;
-      }
 
-      // 2. If upsert returned error, try direct Update
-      const { data: updateData, error: updateError } = await supabase
-        .from('users')
-        .update(dbRow)
-        .eq('id', user.id)
-        .select();
+        if (error) {
+          const missingCol = extractMissingColumn(error);
+          if (missingCol && missingCol in dbRow) {
+            delete dbRow[missingCol];
+            continue; // retry without the missing column
+          }
 
-      if (!updateError && updateData && updateData.length > 0) {
-        this.isTableAvailable = true;
-        const saved = userFromDb(updateData[0]);
-        if (existingIdx >= 0) {
-          this.inMemoryUsers[existingIdx] = saved;
+          // 2. If upsert returned error, try direct Update
+          const { data: updateData, error: updateError } = await supabase
+            .from('users')
+            .update(dbRow)
+            .eq('id', user.id)
+            .select();
+
+          if (!updateError && updateData && updateData.length > 0) {
+            this.isTableAvailable = true;
+            const saved = userFromDb(updateData[0]);
+            if (existingIdx >= 0) {
+              this.inMemoryUsers[existingIdx] = saved;
+            }
+            persistStoredUsers(this.inMemoryUsers);
+            return saved;
+          }
+
+          if (updateError) {
+            const updCol = extractMissingColumn(updateError);
+            if (updCol && updCol in dbRow) {
+              delete dbRow[updCol];
+              continue;
+            }
+          }
+
+          // 3. If update returned empty (row does not exist yet), try Insert
+          const { data: insertData, error: insertError } = await supabase
+            .from('users')
+            .insert(dbRow)
+            .select();
+
+          if (!insertError && insertData && insertData.length > 0) {
+            this.isTableAvailable = true;
+            const saved = userFromDb(insertData[0]);
+            if (existingIdx >= 0) {
+              this.inMemoryUsers[existingIdx] = saved;
+            }
+            persistStoredUsers(this.inMemoryUsers);
+            return saved;
+          }
+
+          if (insertError) {
+            const insCol = extractMissingColumn(insertError);
+            if (insCol && insCol in dbRow) {
+              delete dbRow[insCol];
+              continue;
+            }
+            console.warn('[UserRepository.save Supabase notice]:', error.message || updateError?.message || insertError.message);
+          }
         }
-        persistStoredUsers(this.inMemoryUsers);
-        return saved;
+      } catch (err: any) {
+        console.warn('[UserRepository.save exception]:', err);
       }
-
-      // 3. If update returned error or empty, try Insert
-      const { data: insertData, error: insertError } = await supabase
-        .from('users')
-        .insert(dbRow)
-        .select();
-
-      if (!insertError && insertData && insertData.length > 0) {
-        this.isTableAvailable = true;
-        const saved = userFromDb(insertData[0]);
-        if (existingIdx >= 0) {
-          this.inMemoryUsers[existingIdx] = saved;
-        }
-        persistStoredUsers(this.inMemoryUsers);
-        return saved;
-      }
-
-      if (error || updateError || insertError) {
-        console.warn('[UserRepository.save Supabase notice]:', error || updateError || insertError);
-      }
-    } catch (err: any) {
-      console.warn('[UserRepository.save exception]:', err);
+      break;
     }
 
     return user;
@@ -340,4 +371,5 @@ export class UserRepository {
 }
 
 export const userRepository = new UserRepository();
+
 

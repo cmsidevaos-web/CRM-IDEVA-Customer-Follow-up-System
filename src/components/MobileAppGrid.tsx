@@ -15,6 +15,7 @@ import {
   Sparkles,
   Users,
   UserPlus,
+  ShieldCheck,
 } from 'lucide-react';
 import { ViewTab } from '../types';
 
@@ -34,6 +35,7 @@ interface MobileAppGridProps {
   dueRepeatCount?: number;
   reportsCount?: number;
   manualCount?: number;
+  usersCount?: number;
   settingsCount?: number;
   onOpenCustomizeBottomNav?: () => void;
 }
@@ -54,6 +56,7 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
   dueRepeatCount = 0,
   reportsCount = 4,
   manualCount = 6,
+  usersCount = 0,
   settingsCount,
   onOpenCustomizeBottomNav,
 }) => {
@@ -131,6 +134,15 @@ export const MobileAppGrid: React.FC<MobileAppGridProps> = ({
       gradient: 'from-amber-500 via-yellow-500 to-orange-500',
       badge: dueRepeatCount,
       badgeColor: dueRepeatCount > 0 ? 'bg-orange-500 font-extrabold' : 'bg-amber-600',
+    },
+    {
+      id: 'USERS' as ViewTab,
+      title: 'ผู้ใช้งาน',
+      subtitle: 'จัดการผู้ใช้ & สิทธิ์',
+      icon: ShieldCheck,
+      gradient: 'from-amber-600 via-orange-600 to-amber-700',
+      badge: usersCount,
+      badgeColor: 'bg-amber-600',
     },
     {
       id: 'REPORTS' as ViewTab,

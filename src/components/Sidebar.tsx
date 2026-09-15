@@ -234,7 +234,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="ml-3 truncate flex-1 text-left">{item.label}</span>
               )}
 
-              {!collapsed && item.badge !== undefined && (
+              {!collapsed && item.badge !== undefined && item.badge > 0 && (
                 <span
                   title={item.badgeLabel}
                   className={`ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full text-white shadow-xs ${item.badgeColor}`}
@@ -243,7 +243,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
               )}
 
-              {collapsed && item.badge !== undefined && (
+              {collapsed && item.badge !== undefined && item.badge > 0 && (
                 <span
                   title={`${item.label}: ${item.badge} (${item.badgeLabel || ''})`}
                   className={`absolute -top-1 -right-1 text-[9px] font-extrabold px-1 py-0.2 rounded-full text-white ${item.badgeColor} border border-[#0B3B8C] shadow-xs min-w-[16px] text-center`}

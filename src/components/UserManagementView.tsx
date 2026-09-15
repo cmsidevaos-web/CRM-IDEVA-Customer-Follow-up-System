@@ -68,6 +68,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   const [copiedSql, setCopiedSql] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Auto-fetch users from Supabase on mount
@@ -83,7 +84,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     } catch (e: any) {
       showFeedback('ไม่สามารถรีเฟรชข้อมูลได้: ' + (e?.message || 'ข้อผิดพลาด'), 'error');
     } finally {
-      setTimeout(() => setIsRefreshing(false), 600);
+      setTimeout(() => setIsRefreshing(false), 500);
     }
   };
 
@@ -188,7 +189,8 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   const handleOpenCreate = () => {
     setEditingUser(null);
     setAvatarTab('upload');
-    setInputAvatarUrl('');
+    const defaultAvatar = PRESET_AVATARS[Math.floor(Math.random() * PRESET_AVATARS.length)];
+    setInputAvatarUrl(defaultAvatar);
     setCopiedAvatarLink(false);
     setShowPassword(false);
     setFormData({
@@ -202,7 +204,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       phone: '',
       position: 'เจ้าหน้าที่ฝ่ายขาย',
       department: 'ฝ่ายขายและการตลาด (Sales)',
-      avatarUrl: PRESET_AVATARS[Math.floor(Math.random() * PRESET_AVATARS.length)],
+      avatarUrl: defaultAvatar,
       role: 'SALES',
       status: 'ACTIVE',
       salesOwnerTag: '',
@@ -214,20 +216,33 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   // Open Edit Modal
   const handleOpenEdit = (user: AppUser) => {
     setEditingUser(user);
-    setInputAvatarUrl(user.avatarUrl || '');
+    const userAvatar = user.avatarUrl || PRESET_AVATARS[0];
+    setInputAvatarUrl(userAvatar);
     setCopiedAvatarLink(false);
     setShowPassword(false);
-    if (user.avatarUrl && (user.avatarUrl.startsWith('/uploads/') || user.avatarUrl.startsWith('data:'))) {
+    if (userAvatar.startsWith('/uploads/') || userAvatar.startsWith('data:')) {
       setAvatarTab('upload');
-    } else if (user.avatarUrl && PRESET_AVATARS.includes(user.avatarUrl)) {
+    } else if (PRESET_AVATARS.includes(userAvatar)) {
       setAvatarTab('preset');
-    } else if (user.avatarUrl) {
+    } else if (userAvatar) {
       setAvatarTab('link');
     } else {
       setAvatarTab('upload');
     }
+
+    const fullName = (user.name && user.name.trim() !== '')
+      ? user.name.trim()
+      : `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username;
+    const nameParts = fullName.split(' ');
+    const firstName = user.firstName || nameParts[0] || '';
+    const lastName = user.lastName || nameParts.slice(1).join(' ') || '';
+
     setFormData({
       ...user,
+      firstName,
+      lastName,
+      name: fullName,
+      avatarUrl: userAvatar,
       permissions: { ...(user.permissions || DEFAULT_PERMISSIONS[user.role] || DEFAULT_PERMISSIONS.SALES) },
     });
     setIsModalOpen(true);
@@ -241,45 +256,48 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       return;
     }
 
-    let finalAvatar = formData.avatarUrl;
-    if (avatarTab === 'link' && inputAvatarUrl.trim()) {
-      finalAvatar = inputAvatarUrl.trim();
-    }
-    if (!finalAvatar) {
-      finalAvatar = PRESET_AVATARS[0];
-    }
+    let finalAvatar = (avatarTab === 'link' && inputAvatarUrl.trim())
+      ? inputAvatarUrl.trim()
+      : (formData.avatarUrl?.trim() || inputAvatarUrl.trim() || PRESET_AVATARS[0]);
 
     const fullName = (formData.name && formData.name.trim() !== '')
       ? formData.name.trim()
-      : `${formData.firstName || ''} ${formData.lastName || ''}`.trim() || formData.username;
+      : `${formData.firstName || ''} ${formData.lastName || ''}`.trim() || formData.username.trim();
+
+    const nameParts = fullName.split(' ');
+    const firstName = formData.firstName?.trim() || nameParts[0] || '';
+    const lastName = formData.lastName?.trim() || nameParts.slice(1).join(' ') || '';
 
     const userToSave: AppUser = {
       id: formData.id || `USER-${Date.now()}`,
       username: formData.username.trim().toLowerCase(),
       password: formData.password || '123456',
-      firstName: formData.firstName || '',
-      lastName: formData.lastName || '',
+      firstName: firstName,
+      lastName: lastName,
       name: fullName,
-      email: formData.email || `${formData.username}@ideva.co.th`,
-      phone: formData.phone || '',
-      position: formData.position || 'เจ้าหน้าที่ฝ่ายขาย',
-      department: formData.department || 'ฝ่ายขายและการตลาด (Sales)',
+      email: formData.email?.trim() || `${formData.username.trim()}@ideva.co.th`,
+      phone: formData.phone?.trim() || '',
+      position: formData.position?.trim() || 'เจ้าหน้าที่ฝ่ายขาย',
+      department: formData.department?.trim() || 'ฝ่ายขายและการตลาด (Sales)',
       avatarUrl: finalAvatar,
       role: (formData.role as UserRole) || 'SALES',
       status: (formData.status as UserStatus) || 'ACTIVE',
-      salesOwnerTag: formData.salesOwnerTag || (formData.role === 'SALES' ? fullName : 'ALL'),
+      salesOwnerTag: formData.salesOwnerTag?.trim() || (formData.role === 'SALES' ? fullName : 'ALL'),
       permissions: formData.permissions || DEFAULT_PERMISSIONS[formData.role || 'SALES'],
       createdAt: formData.createdAt || new Date().toISOString().split('T')[0],
       updatedAt: new Date().toISOString().split('T')[0],
     };
 
+    setIsSaving(true);
     try {
       await apiClient.saveUser(userToSave);
-      showFeedback(`บันทึกข้อมูลผู้ใช้งาน "${userToSave.name}" สำเร็จ`);
+      showFeedback(`บันทึกข้อมูลผู้ใช้งาน "${userToSave.name}" ลงฐานข้อมูล Supabase สำเร็จเรียบร้อย`);
       setIsModalOpen(false);
-      onUsersUpdated();
+      await onUsersUpdated();
     } catch (err: any) {
       showFeedback(`เกิดข้อผิดพลาดในการบันทึก: ${err.message}`, 'error');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -294,7 +312,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       try {
         await apiClient.deleteUser(user.id);
         showFeedback(`ลบผู้ใช้งาน "${user.name}" เรียบร้อยแล้ว`);
-        onUsersUpdated();
+        await onUsersUpdated();
       } catch (err: any) {
         showFeedback(`เกิดข้อผิดพลาดในการลบ: ${err.message}`, 'error');
       }
@@ -309,9 +327,13 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     }
     const newStatus: UserStatus = user.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
     const updated: AppUser = { ...user, status: newStatus };
-    await apiClient.saveUser(updated);
-    showFeedback(`เปลี่ยนสถานะ "${user.name}" เป็น ${newStatus === 'ACTIVE' ? 'กำลังใช้งาน' : 'ระงับชั่วคราว'}`);
-    onUsersUpdated();
+    try {
+      await apiClient.saveUser(updated);
+      showFeedback(`เปลี่ยนสถานะ "${user.name}" เป็น ${newStatus === 'ACTIVE' ? 'กำลังใช้งาน' : 'ระงับชั่วคราว'}`);
+      await onUsersUpdated();
+    } catch (err: any) {
+      showFeedback(`เกิดข้อผิดพลาด: ${err.message}`, 'error');
+    }
   };
 
   // Auto Sync default users to Supabase
@@ -320,7 +342,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     try {
       await apiClient.seedUsers(users);
       showFeedback('ซิงค์ข้อมูลผู้ใช้งานไปยัง Supabase Database สำเร็จเรียบร้อยแล้ว!');
-      onUsersUpdated();
+      await onUsersUpdated();
     } catch (e: any) {
       showFeedback(`ซิงค์ข้อมูลไม่สำเร็จ: ${e.message}`, 'error');
     } finally {
@@ -355,46 +377,55 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   }, [users]);
 
   const USERS_SQL_SCRIPT = `-- ====================================================================
--- SUPABASE USERS TABLE SQL SCRIPT (สำหรับตารางผู้ใช้งาน & การตั้งค่าสิทธิ์)
+-- SUPABASE USERS TABLE SQL SCRIPT (สำหรับตารางผู้ใช้งาน & กำหนดสิทธิ์)
 -- Copy and run this in Supabase SQL Editor
 -- ====================================================================
 
-CREATE TABLE IF NOT EXISTS public.users (
-    id VARCHAR(100) PRIMARY KEY,
-    username VARCHAR(100) UNIQUE NOT NULL,
-    user_login VARCHAR(100),
-    password_hash TEXT,
-    password TEXT DEFAULT '123456',
-    first_name VARCHAR(100),
-    last_name VARCHAR(100),
-    full_name TEXT,
-    name TEXT,
-    email VARCHAR(150),
-    phone VARCHAR(50),
-    position VARCHAR(100) DEFAULT 'เจ้าหน้าที่ฝ่ายขาย',
-    department VARCHAR(100) DEFAULT 'ฝ่ายขายและการตลาด (Sales)',
-    avatar_url TEXT,
-    role VARCHAR(50) DEFAULT 'SALES',
-    status VARCHAR(50) DEFAULT 'ACTIVE',
-    sales_owner_tag VARCHAR(100),
-    permissions JSONB DEFAULT '{
-      "canViewDashboard": true,
-      "canManageCustomers": true,
-      "canDeleteCustomers": false,
-      "canManageOrders": true,
-      "canManageActivities": true,
-      "canViewReports": true,
-      "canExportData": false,
-      "canAccessSettings": false,
-      "canManageUsers": false,
-      "dataScope": "OWN_ONLY"
-    }'::jsonb,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    last_login_at TIMESTAMP WITH TIME ZONE
-);
+create table if not exists public.users (
+  id text not null,
+  username text not null,
+  password text not null,
+  name text not null,
+  role text not null default 'SALES'::text,
+  position text null,
+  department text null,
+  email text null,
+  phone text null,
+  avatar_url text null,
+  status text not null default 'ACTIVE'::text,
+  sales_owner_tag text null,
+  permissions jsonb null default '{}'::jsonb,
+  created_at timestamp with time zone null default now(),
+  updated_at timestamp with time zone null default now(),
+  constraint users_pkey primary key (id),
+  constraint users_username_key unique (username)
+) TABLESPACE pg_default;
 
 ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
+
+-- Seed Data (ข้อมูลเริ่มต้น 6 ผู้ใช้งาน)
+INSERT INTO public.users (id, username, password, name, role, position, department, email, phone, avatar_url, status, sales_owner_tag, permissions)
+VALUES 
+  ('USER-MASTER-ADMIN', 'master_admin', 'admin8888', 'Master Admin (ผู้ดูแลระบบสูงสุด)', 'MASTER_ADMIN', 'Chief Technology Officer (CTO)', 'ฝ่ายบริหารระดับสูง (Executive)', 'master@ideva.co.th', '081-999-8888', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": true, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": true, "canViewDashboard": true, "canAccessSettings": true, "canExportData": true}'),
+  ('USER-ADMIN', 'admin', 'admin1234', 'คุณพัฒน์ บริหารงาน (Admin)', 'ADMIN', 'System Administrator', 'ฝ่ายเทคโนโลยีสารสนเทศ (IT)', 'admin@ideva.co.th', '082-345-6789', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": true, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": true, "canViewDashboard": true, "canAccessSettings": true, "canExportData": true}'),
+  ('USER-SALES-A', 'sales_a', 'sales1234', 'คุณสมชาย ใจดี (Sales A)', 'SALES', 'Senior Sales Executive', 'ฝ่ายขายและการตลาด (Sales)', 'somchai@ideva.co.th', '089-123-4567', 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'คุณสมชาย (Sales A)', '{"dataScope": "OWN_ONLY", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
+  ('USER-SALES-B', 'sales_b', 'sales1234', 'คุณนภา รัตนโชติ (Sales B)', 'SALES', 'Sales Representative', 'ฝ่ายขายและการตลาด (Sales)', 'napha@ideva.co.th', '086-789-0123', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'คุณนภา (Sales B)', '{"dataScope": "OWN_ONLY", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
+  ('USER-VIEWER', 'viewer', 'viewer1234', 'คุณกมล เฝ้าสังเกต (Viewer)', 'VIEWER', 'Auditor / Guest Observer', 'ฝ่ายตรวจสอบและประเมินผล (Audit)', 'viewer@ideva.co.th', '085-456-7890', 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": false, "canManageCustomers": false, "canManageOrders": false, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
+  ('USER-ART-KITTHANA', 'artkitthana', 'art8888', 'ART KITTHANA', 'MASTER_ADMIN', 'เจ้าหน้าที่ฝ่ายขาย', 'ฝ่ายขายและการตลาด (Sales)', 'cmsidevaos@gmail.com', '081-111-2222', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": true, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": true, "canViewDashboard": true, "canAccessSettings": true, "canExportData": true}')
+ON CONFLICT (id) DO UPDATE SET
+  username = EXCLUDED.username,
+  password = EXCLUDED.password,
+  name = EXCLUDED.name,
+  role = EXCLUDED.role,
+  position = EXCLUDED.position,
+  department = EXCLUDED.department,
+  email = EXCLUDED.email,
+  phone = EXCLUDED.phone,
+  avatar_url = EXCLUDED.avatar_url,
+  status = EXCLUDED.status,
+  sales_owner_tag = EXCLUDED.sales_owner_tag,
+  permissions = EXCLUDED.permissions,
+  updated_at = NOW();
 `;
 
   return (
@@ -807,13 +838,46 @@ ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
                 </span>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                  <div className="space-y-1">
-                    <label className="block font-semibold text-slate-700">ชื่อ (First Name) <span className="text-rose-500">*</span></label>
+                  {/* Full Name Display */}
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="block font-semibold text-slate-700">
+                      ชื่อ-นามสกุล ที่แสดงในระบบ (Display Full Name) <span className="text-rose-500">*</span>
+                    </label>
                     <input
                       type="text"
                       required
+                      value={formData.name || ''}
+                      onChange={(e) => {
+                        const newName = e.target.value;
+                        const parts = newName.trim().split(' ');
+                        const fName = parts[0] || '';
+                        const lName = parts.slice(1).join(' ') || '';
+                        setFormData((prev) => ({
+                          ...prev,
+                          name: newName,
+                          firstName: fName,
+                          lastName: lName,
+                        }));
+                      }}
+                      placeholder="เช่น สมชาย ใจดี"
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-600"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block font-semibold text-slate-700">ชื่อ (First Name)</label>
+                    <input
+                      type="text"
                       value={formData.firstName || ''}
-                      onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      onChange={(e) => {
+                        const newFirst = e.target.value;
+                        const combined = `${newFirst} ${formData.lastName || ''}`.trim();
+                        setFormData((prev) => ({
+                          ...prev,
+                          firstName: newFirst,
+                          name: combined,
+                        }));
+                      }}
                       placeholder="เช่น สมชาย"
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-600"
                     />
@@ -824,7 +888,15 @@ ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
                     <input
                       type="text"
                       value={formData.lastName || ''}
-                      onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      onChange={(e) => {
+                        const newLast = e.target.value;
+                        const combined = `${formData.firstName || ''} ${newLast}`.trim();
+                        setFormData((prev) => ({
+                          ...prev,
+                          lastName: newLast,
+                          name: combined,
+                        }));
+                      }}
                       placeholder="เช่น ใจดี"
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-600"
                     />
@@ -1083,7 +1155,11 @@ ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
                           <input
                             type="url"
                             value={inputAvatarUrl}
-                            onChange={(e) => setInputAvatarUrl(e.target.value)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setInputAvatarUrl(val);
+                              setFormData((prev) => ({ ...prev, avatarUrl: val }));
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
@@ -1317,16 +1393,23 @@ ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
             <div className="flex items-center justify-end gap-3 p-4 sm:px-6 bg-slate-50/90 border-t border-slate-100 flex-shrink-0">
               <button
                 type="button"
+                disabled={isSaving}
                 onClick={() => setIsModalOpen(false)}
-                className="px-5 py-2.5 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 cursor-pointer transition-colors shadow-2xs"
+                className="px-5 py-2.5 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 cursor-pointer transition-colors shadow-2xs"
               >
                 ยกเลิก
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all active:scale-98"
+                disabled={isSaving}
+                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-75 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all active:scale-98 flex items-center gap-2"
               >
-                {editingUser ? 'บันทึกการแก้ไข' : 'บันทึกและสร้างผู้ใช้งาน'}
+                {isSaving && <RefreshCw size={14} className="animate-spin" />}
+                {isSaving
+                  ? 'กำลังบันทึกลง Supabase...'
+                  : editingUser
+                  ? 'บันทึกการแก้ไข'
+                  : 'บันทึกและสร้างผู้ใช้งาน'}
               </button>
             </div>
           </form>
