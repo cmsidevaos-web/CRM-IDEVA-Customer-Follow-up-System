@@ -176,10 +176,15 @@ export const Header: React.FC<HeaderProps> = ({
               onChange={(e) => setSelectedSalesOwner(e.target.value)}
               className="bg-transparent font-bold focus:outline-none cursor-pointer text-blue-900"
             >
-              <option value="ALL">👑 แอดมิน: ดูเซลล์ทั้งหมด (All Sales)</option>
-              <option value="คุณสมชาย (Sales A)">คุณสมชาย (Sales A)</option>
-              <option value="คุณนภา (Sales B)">คุณนภา (Sales B)</option>
-              <option value="คุณวิชัย (Manager)">คุณวิชัย (Manager)</option>
+              <option value="ALL">👑 ดูทุกฝ่ายขาย (All Team)</option>
+              {(availableUsers && availableUsers.length > 0 ? availableUsers : AVAILABLE_USERS).map((u) => {
+                const tag = u.salesOwnerTag || u.name;
+                return (
+                  <option key={u.id} value={tag}>
+                    {u.name} {u.role ? `(${u.role})` : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
         ) : (

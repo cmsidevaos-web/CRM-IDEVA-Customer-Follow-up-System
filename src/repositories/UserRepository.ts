@@ -11,9 +11,12 @@ export function userToDb(u: AppUser | any) {
   const username = String(u.username || u.user_login || '').trim().toLowerCase();
   const password = String(u.password || '123456');
   const avatar = u.avatarUrl || u.avatar_url || u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80';
+  const telegramChatId = u.telegramChatId || u.telegram_chat_id || '';
+  const telegramConnected = u.telegramConnected !== undefined ? Boolean(u.telegramConnected) : (u.telegram_connected !== undefined ? Boolean(u.telegram_connected) : Boolean(telegramChatId));
 
   return {
     id: String(u.id || `USER-${Date.now()}`),
+    sales_id: u.salesId || u.sales_id || (u.id ? String(u.id).replace('USER-', 'SALE_') : null),
     username: username,
     password: password,
     name: fullName,
@@ -25,6 +28,9 @@ export function userToDb(u: AppUser | any) {
     avatar_url: avatar,
     status: String(u.status || 'ACTIVE'),
     sales_owner_tag: u.salesOwnerTag || u.sales_owner_tag || (u.role === 'SALES' ? fullName : 'ALL'),
+    telegram_chat_id: telegramChatId || null,
+    telegram_connected: telegramConnected,
+    telegram_username: u.telegramUsername || u.telegram_username || null,
     permissions: u.permissions || (u.role ? DEFAULT_PERMISSIONS[u.role as keyof typeof DEFAULT_PERMISSIONS] : DEFAULT_PERMISSIONS.SALES),
     created_at: u.createdAt || u.created_at || new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -60,8 +66,12 @@ export function userFromDb(row: any): AppUser {
   const statusRaw = (row.status || 'ACTIVE').toUpperCase();
   const status: AppUser['status'] = (statusRaw === 'INACTIVE' || statusRaw === 'SUSPENDED' ? statusRaw : 'ACTIVE') as AppUser['status'];
 
+  const telegramChatId = row.telegram_chat_id || row.telegramChatId || '';
+  const telegramConnected = row.telegram_connected !== undefined ? Boolean(row.telegram_connected) : (row.telegramConnected !== undefined ? Boolean(row.telegramConnected) : Boolean(telegramChatId));
+
   return {
     id: String(row.id || `USER-${Date.now()}`),
+    salesId: row.sales_id || row.salesId || (row.id ? String(row.id).replace('USER-', 'SALE_') : undefined),
     username: row.username || row.user_login || row.user || row.login || '',
     password: row.password || row.password_hash || row.pass || '123456',
     firstName,
@@ -75,6 +85,9 @@ export function userFromDb(row: any): AppUser {
     role: role,
     status: status,
     salesOwnerTag: row.sales_owner_tag || row.salesOwnerTag || row.sales_owner || (role === 'SALES' ? fullName : 'ALL'),
+    telegramChatId: telegramChatId || undefined,
+    telegramConnected: telegramConnected,
+    telegramUsername: row.telegram_username || row.telegramUsername || undefined,
     permissions: parsedPermissions,
     createdAt: row.created_at || row.createdAt || new Date().toISOString().split('T')[0],
     updatedAt: row.updated_at || row.updatedAt || new Date().toISOString().split('T')[0],

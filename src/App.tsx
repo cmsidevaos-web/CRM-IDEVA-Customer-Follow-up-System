@@ -860,6 +860,7 @@ export default function App() {
           {activeTab === 'CUSTOMERS' && (
             <CustomerListView
               customers={filteredCustomers}
+              users={users}
               initialStatusFilter={statusFilter}
               onSelectCustomer={handleSelectCustomer}
               onOpenCreateCustomer={() => setIsCreateCustomerOpen(true)}
@@ -999,6 +1000,8 @@ export default function App() {
         isOpen={isCreateCustomerOpen}
         onClose={() => setIsCreateCustomerOpen(false)}
         onSubmit={handleCreateCustomer}
+        users={users}
+        currentUser={currentUser}
       />
 
       <EditCustomerModal
@@ -1007,6 +1010,7 @@ export default function App() {
         onClose={() => setEditingCustomer(null)}
         onSubmit={handleEditCustomer}
         onDelete={(id) => handleDeleteCustomer(id)}
+        users={users}
       />
 
       <CreateActivityModal

@@ -3,7 +3,14 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
-import { buildTelegramCard, defaultTelegramSettings, defaultTelegramTopics, getTopicForType, sendTelegramApiMessage } from './src/services/telegramService';
+import {
+  buildTelegramCard,
+  buildPrivateTelegramCard,
+  defaultTelegramSettings,
+  defaultTelegramTopics,
+  getTopicForType,
+  sendTelegramApiMessage
+} from './src/services/telegramService';
 import { Activity, AppUser, Customer, CustomerDocument, InternalNote, NotificationItem, Order, TelegramNotificationLog, TelegramQueueItem, TelegramSettings, TelegramTopic } from './src/types';
 import {
   fetchCustomersFromSupabase,
@@ -44,11 +51,55 @@ import { customerRepository } from './src/repositories/CustomerRepository';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// In-memory de-duplication cache (key: `${eventId}_${recipientType}_${chatId}`)
+const deliveredEventCache = new Set<string>();
+
+export function resolveSalesUser(salesTarget: string, users: AppUser[]): AppUser | null {
+  if (!salesTarget || !Array.isArray(users)) return null;
+  const t = salesTarget.trim().toLowerCase();
+
+  // 1. Direct match by salesId, id, or username (case-insensitive)
+  let found = users.find(
+    (u) =>
+      (u.salesId && u.salesId.toLowerCase() === t) ||
+      (u.id && u.id.toLowerCase() === t) ||
+      (u.username && u.username.toLowerCase() === t)
+  );
+  if (found) return found;
+
+  // 2. Direct match by full name, salesOwnerTag, or telegramUsername
+  found = users.find(
+    (u) =>
+      (u.name && u.name.toLowerCase() === t) ||
+      (u.salesOwnerTag && u.salesOwnerTag.toLowerCase() === t) ||
+      (u.telegramUsername && u.telegramUsername.toLowerCase().replace('@', '') === t.replace('@', ''))
+  );
+  if (found) return found;
+
+  // 3. Substring / Token matching on names
+  found = users.find((u) => {
+    const uName = (u.name || '').toLowerCase();
+    const uFirst = (u.firstName || '').toLowerCase();
+    const uLast = (u.lastName || '').toLowerCase();
+    const uTag = (u.salesOwnerTag || '').toLowerCase();
+
+    return (
+      (uName && (t.includes(uName) || uName.includes(t))) ||
+      (uFirst && (t.includes(uFirst) || uFirst.includes(t))) ||
+      (uLast && uLast.length > 2 && (t.includes(uLast) || uLast.includes(t))) ||
+      (uTag && (t.includes(uTag) || uTag.includes(t)))
+    );
+  });
+
+  return found || null;
+}
+
 async function processTelegramQueueWorker() {
   const telegramSettingsStore = await fetchTelegramSettingsFromSupabase();
   const topicsList = await fetchTelegramTopicsFromSupabase();
   if (!telegramSettingsStore.is_enabled) return { processed: 0, status: 'disabled' };
 
+  const { data: usersList } = await fetchUsersFromSupabase();
   const queue = await fetchTelegramQueueFromSupabase();
   const pending = queue.filter((item) => item.status === 'PENDING');
   let processedCount = 0;
@@ -57,53 +108,123 @@ async function processTelegramQueueWorker() {
     item.status = 'PROCESSING';
     await updateTelegramQueueItemSupabase(item);
 
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const eventId = item.id || `EVENT-${Date.now()}`;
+    const payload = item.payload || {};
+
+    // 1. Resolve Responsible Sales Person for Private Message
+    const rawSalesTarget =
+      payload.salesOwner ||
+      payload.sales_owner ||
+      payload.salesId ||
+      payload.sales_id ||
+      payload.salesOwnerTag ||
+      payload.assignee ||
+      payload.sale ||
+      '';
+
+    const matchedSalesUser = resolveSalesUser(rawSalesTarget, usersList);
+
+    // 2. Private Telegram Dispatch
+    if (matchedSalesUser && matchedSalesUser.telegramChatId) {
+      const privateDedupeKey = `${eventId}_PRIVATE_${matchedSalesUser.telegramChatId}`;
+      if (!deliveredEventCache.has(privateDedupeKey)) {
+        try {
+          const privateCard = buildPrivateTelegramCard(item.type, payload);
+          const privateSendRes = await sendTelegramApiMessage(
+            telegramSettingsStore.bot_token,
+            matchedSalesUser.telegramChatId,
+            undefined, // No topic thread ID for private chats
+            privateCard
+          );
+
+          const privateLog: TelegramNotificationLog = {
+            id: `TGLOG-PVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            customer_id: payload.customerId || payload.id,
+            order_id: payload.orderId,
+            notification_type: item.type,
+            recipient_type: 'PRIVATE',
+            recipient_name: matchedSalesUser.name,
+            sales_id: matchedSalesUser.salesId || matchedSalesUser.id,
+            telegram_message_id: privateSendRes.messageId || String(Math.floor(80000 + Math.random() * 20000)),
+            telegram_chat_id: matchedSalesUser.telegramChatId,
+            status: privateSendRes.ok ? 'SENT' : 'FAILED',
+            error_message: privateSendRes.ok ? undefined : (privateSendRes.response?.description || 'Private message send failed'),
+            response: JSON.stringify(privateSendRes.response),
+            created_at: nowStr,
+          };
+          await addTelegramLogSupabase(privateLog);
+
+          if (privateSendRes.ok) {
+            deliveredEventCache.add(privateDedupeKey);
+          }
+        } catch (pvtErr: any) {
+          console.error('[Private Telegram Notification Error]:', pvtErr);
+        }
+      }
+    } else if (rawSalesTarget) {
+      // Sales person has no Telegram Chat ID -> Log gracefully without failing
+      const skipLog: TelegramNotificationLog = {
+        id: `TGLOG-PVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        customer_id: payload.customerId || payload.id,
+        order_id: payload.orderId,
+        notification_type: item.type,
+        recipient_type: 'PRIVATE',
+        recipient_name: matchedSalesUser?.name || rawSalesTarget,
+        sales_id: matchedSalesUser?.salesId || matchedSalesUser?.id,
+        telegram_chat_id: '',
+        status: 'NOT_CONNECTED',
+        error_message: 'พนักงานยังไม่ได้เชื่อมต่อ Telegram Chat ID (Skipped gracefully)',
+        created_at: nowStr,
+      };
+      await addTelegramLogSupabase(skipLog);
+    }
+
+    // 3. Group Telegram Dispatch
     const { threadId } = getTopicForType(item.type, topicsList);
     const targetTopicId = threadId || telegramSettingsStore.topic_id || '2';
+    const groupDedupeKey = `${eventId}_GROUP_${telegramSettingsStore.group_chat_id}_${targetTopicId}`;
 
-    const cardResult = buildTelegramCard(item.type, item.payload);
-    const sendRes = await sendTelegramApiMessage(
-      telegramSettingsStore.bot_token,
-      telegramSettingsStore.group_chat_id,
-      targetTopicId,
-      cardResult
-    );
+    let groupSendRes: any = { ok: true, messageId: 'DEDUPLICATED' };
+    if (!deliveredEventCache.has(groupDedupeKey)) {
+      const cardResult = buildTelegramCard(item.type, payload);
+      groupSendRes = await sendTelegramApiMessage(
+        telegramSettingsStore.bot_token,
+        telegramSettingsStore.group_chat_id,
+        targetTopicId,
+        cardResult
+      );
 
-    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
+      const groupLog: TelegramNotificationLog = {
+        id: `TGLOG-GRP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        customer_id: payload.customerId || payload.id,
+        order_id: payload.orderId,
+        notification_type: item.type,
+        recipient_type: 'GROUP',
+        recipient_name: 'CRM Sales Alerts Group',
+        telegram_message_id: groupSendRes.messageId || String(Math.floor(80000 + Math.random() * 20000)),
+        telegram_chat_id: telegramSettingsStore.group_chat_id,
+        status: groupSendRes.ok ? 'SENT' : 'FAILED',
+        error_message: groupSendRes.ok ? undefined : (groupSendRes.response?.description || 'Group message send failed'),
+        response: JSON.stringify(groupSendRes.response),
+        created_at: nowStr,
+      };
+      await addTelegramLogSupabase(groupLog);
 
-    if (sendRes.ok) {
+      if (groupSendRes.ok) {
+        deliveredEventCache.add(groupDedupeKey);
+      }
+    }
+
+    if (groupSendRes.ok) {
       item.status = 'COMPLETED';
       item.processed_at = nowStr;
       await updateTelegramQueueItemSupabase(item);
-
-      const logItem: TelegramNotificationLog = {
-        id: `TGLOG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        customer_id: item.payload?.customerId || item.payload?.id,
-        order_id: item.payload?.orderId,
-        notification_type: item.type,
-        telegram_message_id: sendRes.messageId || String(Math.floor(80000 + Math.random() * 20000)),
-        telegram_chat_id: telegramSettingsStore.group_chat_id,
-        status: 'SENT',
-        response: JSON.stringify(sendRes.response),
-        created_at: nowStr,
-      };
-      await addTelegramLogSupabase(logItem);
       processedCount++;
     } else {
       item.retry_count = (item.retry_count || 0) + 1;
       item.status = item.retry_count >= 5 ? 'FAILED' : 'PENDING';
       await updateTelegramQueueItemSupabase(item);
-
-      const logItem: TelegramNotificationLog = {
-        id: `TGLOG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        customer_id: item.payload?.customerId || item.payload?.id,
-        order_id: item.payload?.orderId,
-        notification_type: item.type,
-        telegram_chat_id: telegramSettingsStore.group_chat_id,
-        status: 'FAILED',
-        response: JSON.stringify(sendRes.response),
-        created_at: nowStr,
-      };
-      await addTelegramLogSupabase(logItem);
     }
   }
 
@@ -783,6 +904,164 @@ async function startServer() {
   app.post('/api/telegram/send-summary', summaryHandler);
   app.post('/api/telegram/summary', summaryHandler);
   app.post('/telegram/summary', summaryHandler);
+
+  // POST Test Private Notification (to specific sales person)
+  const testPrivateHandler = async (req: express.Request, res: express.Response) => {
+    try {
+      const { salesId, salesName, chatId, type, payload } = req.body;
+      const telegramSettingsStore = await fetchTelegramSettingsFromSupabase();
+      const { data: usersList } = await fetchUsersFromSupabase();
+
+      let targetChatId = chatId;
+      let targetUser: AppUser | null = null;
+
+      if (salesId || salesName) {
+        targetUser = resolveSalesUser(salesId || salesName, usersList);
+        if (targetUser?.telegramChatId) {
+          targetChatId = targetUser.telegramChatId;
+        }
+      }
+
+      if (!targetChatId) {
+        return res.status(400).json({
+          success: false,
+          error: 'ไม่พบ Telegram Chat ID ของพนักงาน กรุณาเชื่อมต่อ Telegram หรือกรอก Chat ID ในหน้าจัดการผู้ใช้งานก่อนทดสอบ',
+        });
+      }
+
+      const eventType = type || 'FOLLOW_UP';
+      const samplePayload = payload || {
+        companyName: 'บริษัท ทดสอบเทเลแกรม จำกัด (ABC Group)',
+        contactName: 'คุณสมชาย ใจดี',
+        phone: '081-234-5678',
+        salesOwner: targetUser?.name || salesName || 'Ito San',
+        nextAction: 'โทรติดตามใบเสนอราคาและสรุปคำสั่งซื้อ',
+        dealValue: 145000,
+        nextFollowUpDate: new Date().toISOString().split('T')[0],
+        customerId: 'CUST-001',
+      };
+
+      const privateCard = buildPrivateTelegramCard(eventType, samplePayload);
+      const sendRes = await sendTelegramApiMessage(
+        telegramSettingsStore.bot_token,
+        targetChatId,
+        undefined,
+        privateCard
+      );
+
+      const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
+      const logItem: TelegramNotificationLog = {
+        id: `TGLOG-PVT-${Date.now()}`,
+        customer_id: samplePayload.customerId,
+        notification_type: eventType,
+        recipient_type: 'PRIVATE',
+        recipient_name: targetUser?.name || salesName || 'Sales Private',
+        sales_id: targetUser?.salesId || salesId,
+        telegram_message_id: sendRes.messageId || String(Math.floor(80000 + Math.random() * 20000)),
+        telegram_chat_id: targetChatId,
+        status: sendRes.ok ? 'SENT' : 'FAILED',
+        error_message: sendRes.ok ? undefined : (sendRes.response?.description || 'Private message failed'),
+        response: JSON.stringify(sendRes.response),
+        created_at: nowStr,
+      };
+      await addTelegramLogSupabase(logItem);
+
+      res.json({
+        success: sendRes.ok,
+        messageId: sendRes.messageId,
+        chatId: targetChatId,
+        recipient: targetUser?.name || salesName || targetChatId,
+        cardText: privateCard.text,
+        response: sendRes.response,
+        log: logItem,
+      });
+    } catch (e: any) {
+      console.error('[POST /api/telegram/test-private error]:', e);
+      res.status(500).json({ success: false, error: e?.message || 'Error sending test private notification' });
+    }
+  };
+  app.post('/api/telegram/test-private', testPrivateHandler);
+  app.post('/telegram/test-private', testPrivateHandler);
+
+  // Telegram Bot Webhook Endpoint (Supports /start <sales_id> deep link)
+  const webhookHandler = async (req: express.Request, res: express.Response) => {
+    try {
+      const update = req.body;
+      if (!update || !update.message) {
+        return res.json({ ok: true, status: 'no_message' });
+      }
+
+      const msg = update.message;
+      const text = String(msg.text || '').trim();
+      const chatId = String(msg.chat?.id || '');
+      const tgUsername = msg.from?.username || '';
+      const fromName = `${msg.from?.first_name || ''} ${msg.from?.last_name || ''}`.trim();
+
+      if (text.startsWith('/start')) {
+        const parts = text.split(' ');
+        const salesParam = parts[1] ? parts[1].trim() : '';
+
+        const { data: usersList } = await fetchUsersFromSupabase();
+        let matchedUser: AppUser | null = null;
+
+        if (salesParam) {
+          matchedUser = resolveSalesUser(salesParam, usersList);
+        } else if (tgUsername) {
+          matchedUser = usersList.find((u) => u.telegramUsername && u.telegramUsername.toLowerCase() === tgUsername.toLowerCase()) || null;
+        }
+
+        const telegramSettingsStore = await fetchTelegramSettingsFromSupabase();
+
+        if (matchedUser) {
+          // Auto-connect Telegram chat ID to user profile
+          matchedUser.telegramChatId = chatId;
+          matchedUser.telegramConnected = true;
+          if (tgUsername) matchedUser.telegramUsername = tgUsername;
+          await upsertUserSupabase(matchedUser);
+
+          const welcomeCard = {
+            text: `🎉 <b>เชื่อมต่อบัญชี Telegram สำเร็จ!</b>\n━━━━━━━━━━━━━━━━━━\n👤 <b>ยินดีต้อนรับ:</b> ${matchedUser.name}\n🆔 <b>Sales ID:</b> <code>${matchedUser.salesId || matchedUser.id}</code>\n💬 <b>Chat ID:</b> <code>${chatId}</code>\n━━━━━━━━━━━━━━━━━━\n✅ ระบบ CRM IDEVA OS จะส่งการแจ้งเตือนงาน ติดตามลูกค้า ใบเสนอราคา และออเดอร์ของคุณมายังที่นี่โดยอัตโนมัติ`,
+            headerColor: '#10B981',
+            badgeEmoji: '✅',
+            reply_markup: {
+              inline_keyboard: [[{ text: '🚀 เข้าสู่ระบบ CRM', url: 'https://crm.yourdomain.com' }]],
+            },
+          };
+
+          await sendTelegramApiMessage(
+            telegramSettingsStore.bot_token,
+            chatId,
+            undefined,
+            welcomeCard
+          );
+
+          return res.json({ ok: true, connectedUser: matchedUser.name, chatId });
+        } else {
+          const guideCard = {
+            text: `👋 <b>สวัสดีคุณ ${fromName || 'ผู้ใช้งาน'}!</b>\n━━━━━━━━━━━━━━━━━━\nℹ️ กรุณาเชื่อมต่อผ่านปุ่ม <b>[ 🔗 เชื่อม Telegram ]</b> ในหน้าจัดการผู้ใช้งาน CRM\nหรือส่งคำสั่ง <code>/start &lt;Sales_ID&gt;</code> เช่น:\n<code>/start SALE_001</code>`,
+            headerColor: '#3B82F6',
+            badgeEmoji: 'ℹ️',
+          };
+
+          await sendTelegramApiMessage(
+            telegramSettingsStore.bot_token,
+            chatId,
+            undefined,
+            guideCard
+          );
+
+          return res.json({ ok: true, status: 'unidentified_sales', chatId });
+        }
+      }
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error('[Telegram Webhook Error]:', err);
+      res.status(500).json({ ok: false, error: err?.message || 'Webhook Error' });
+    }
+  };
+  app.post('/api/telegram/webhook', webhookHandler);
+  app.post('/telegram/webhook', webhookHandler);
 
   // POST Retry Failed Notifications
   const retryHandler = async (req: express.Request, res: express.Response) => {

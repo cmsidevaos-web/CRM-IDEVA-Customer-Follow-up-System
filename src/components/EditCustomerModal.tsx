@@ -12,8 +12,9 @@ import {
   User,
   X
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
-import { Customer, CustomerStatus, CustomerTier } from '../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AppUser, Customer, CustomerStatus, CustomerTier } from '../types';
+import { INITIAL_USERS } from '../data/defaultUsers';
 
 interface EditCustomerModalProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ interface EditCustomerModalProps {
   onClose: () => void;
   onSubmit: (updatedCustomer: Customer) => void;
   onDelete?: (customerId: string) => void;
+  users?: AppUser[];
 }
 
 export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
@@ -29,6 +31,7 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
   onClose,
   onSubmit,
   onDelete,
+  users = INITIAL_USERS,
 }) => {
   const [companyName, setCompanyName] = useState('');
   const [contactName, setContactName] = useState('');
@@ -37,7 +40,7 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
   const [email, setEmail] = useState('');
   const [interestedProducts, setInterestedProducts] = useState('');
   const [source, setSource] = useState('Facebook');
-  const [salesOwner, setSalesOwner] = useState('คุณสมชาย (Sales A)');
+  const [salesOwner, setSalesOwner] = useState('Ito San');
   const [status, setStatus] = useState<CustomerStatus>('NEW');
   const [tier, setTier] = useState<CustomerTier>('GENERAL');
   const [nextFollowUpDate, setNextFollowUpDate] = useState('');
@@ -48,6 +51,26 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
   const [address, setAddress] = useState('');
   const [taxId, setTaxId] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Extract and prioritize Sales Users from users table
+  const salesUsersList = useMemo(() => {
+    const safeUsers = Array.isArray(users) && users.length > 0 ? users : INITIAL_USERS;
+    const active = safeUsers.filter((u) => u.status === 'ACTIVE' || !u.status);
+
+    const salesOnly = active.filter((u) => u.role === 'SALES');
+    const others = active.filter((u) => u.role !== 'SALES');
+
+    return [...salesOnly, ...others];
+  }, [users]);
+
+  // Selected User Object from database users table
+  const selectedUser = salesUsersList.find(
+    (u) =>
+      u.name === salesOwner ||
+      u.salesOwnerTag === salesOwner ||
+      (u.salesId && u.salesId === salesOwner) ||
+      u.id === salesOwner
+  );
 
   useEffect(() => {
     if (customer) {
@@ -258,16 +281,44 @@ export const EditCustomerModal: React.FC<EditCustomerModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 mb-1">ผู้รับผิดชอบ (Sales Owner)</label>
+              <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between">
+                <span>ผู้รับผิดชอบ (Sales Owner)</span>
+                <span className="text-[10px] font-normal text-blue-600">ดึงจาก Users Table</span>
+              </label>
               <select
                 value={salesOwner}
                 onChange={(e) => setSalesOwner(e.target.value)}
-                className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white"
+                className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white font-semibold text-slate-800"
               >
-                <option value="คุณสมชาย (Sales A)">คุณสมชาย (Sales A)</option>
-                <option value="คุณนภา (Sales B)">คุณนภา (Sales B)</option>
-                <option value="คุณวิชัย (Manager)">คุณวิชัย (Manager)</option>
+                {salesUsersList.map((u) => {
+                  const tag = u.salesOwnerTag || u.name;
+                  const isConnected = Boolean(u.telegramChatId);
+                  return (
+                    <option key={u.id} value={tag}>
+                      {u.name} {u.salesId ? `(${u.salesId})` : ''} - {u.role} {isConnected ? `[TG: ${u.telegramChatId}]` : '[TG: ยังไม่เชื่อมต่อ]'}
+                    </option>
+                  );
+                })}
               </select>
+
+              {/* Live Telegram Private Notification Status Badge */}
+              <div className="mt-1.5 p-2 rounded-xl border text-[11px] flex items-center gap-2 transition-all bg-slate-50 border-slate-200">
+                {selectedUser?.telegramChatId ? (
+                  <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+                    <span>
+                      <strong>Telegram Private:</strong> 🟢 พร้อมส่งแจ้งเตือนตรงถึง {selectedUser.name} (Chat ID: <code className="font-mono bg-white px-1 py-0.5 rounded border border-emerald-200">{selectedUser.telegramChatId}</code>)
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-amber-700 font-medium">
+                    <span className="text-amber-500 font-bold flex-shrink-0">⚠️</span>
+                    <span>
+                      <strong>Telegram Private:</strong> ⚠️ ยังไม่มี Chat ID (จะส่งเฉพาะ Group กลาง)
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div>

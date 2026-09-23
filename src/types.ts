@@ -170,6 +170,7 @@ export interface UserPermissions {
 
 export interface UserProfile {
   id: string;
+  salesId?: string;
   username?: string;
   name: string;
   firstName?: string;
@@ -183,6 +184,9 @@ export interface UserProfile {
   avatarUrl?: string;
   avatar?: string;
   salesOwnerTag?: string;
+  telegramChatId?: string;
+  telegramConnected?: boolean;
+  telegramUsername?: string;
   permissions?: UserPermissions;
   lastLoginAt?: string;
   createdAt?: string;
@@ -250,10 +254,27 @@ export interface TelegramNotificationLog {
   follow_up_id?: string;
   order_id?: string;
   notification_type: string;
+  recipient_type?: 'GROUP' | 'PRIVATE';
+  recipient_name?: string;
+  sales_id?: string;
   telegram_message_id?: string;
   telegram_chat_id?: string;
-  status: 'SENT' | 'FAILED' | 'PENDING';
+  status: 'SENT' | 'FAILED' | 'PENDING' | 'NOT_CONNECTED' | 'SKIPPED';
+  error_message?: string;
   response?: string;
+  created_at: string;
+}
+
+export interface NotificationDelivery {
+  id: string;
+  event_id: string;
+  recipient_type: 'GROUP' | 'PRIVATE';
+  recipient_name?: string;
+  chat_id: string;
+  sales_id?: string;
+  message_id?: string;
+  status: 'SENT' | 'FAILED' | 'NOT_CONNECTED' | 'SKIPPED';
+  error_message?: string;
   created_at: string;
 }
 

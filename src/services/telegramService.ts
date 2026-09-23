@@ -522,6 +522,82 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
+export function buildPrivateTelegramCard(
+  type: string,
+  payload: any,
+  baseUrl = 'https://crm.yourdomain.com'
+): TelegramCardResult {
+  const customerId = payload.customerId || payload.id || 'CUST-001';
+  const crmUrl = `${baseUrl}?customer=${customerId}`;
+  const company = payload.companyName || payload.customerName || 'ลูกค้า CRM';
+  const salesOwner = payload.salesOwner || payload.salesOwnerTag || 'คุณ';
+  const upper = (type || '').toUpperCase();
+
+  let task = 'ติดตามลูกค้าประจำวัน';
+  const dealValue = payload.dealValue || payload.totalAmount || payload.amount || payload.totalPurchases || 0;
+  const date = payload.nextFollowUpDate || payload.followUpDate || payload.orderDate || new Date().toISOString().split('T')[0];
+  let statusText = 'รอดำเนินการ';
+  const badgeEmoji = '🔔';
+
+  if (upper.includes('OVERDUE')) {
+    task = 'ติดตามลูกค้า (เกินกำหนด Overdue)';
+    statusText = '🔴 เกินกำหนด';
+  } else if (upper.includes('FOLLOW')) {
+    task = payload.nextAction || 'ติดตามความคืบหน้าการขาย';
+    statusText = '📅 ถึงกำหนดติดตาม';
+  } else if (upper.includes('ORDER')) {
+    task = `คำสั่งซื้อใหม่: ${payload.productName || 'สินค้า'} (${payload.quantity || 1} ชิ้น)`;
+    statusText = '📦 สั่งซื้อใหม่';
+  } else if (upper.includes('WON')) {
+    task = `ปิดการขายสำเร็จ (${payload.productName || 'คำสั่งซื้อ'})`;
+    statusText = '🏆 WON DEALS';
+  } else if (upper.includes('QUOTATION')) {
+    task = 'ติดตามผลการส่งใบเสนอราคา (Quotation)';
+    statusText = '📄 ส่งใบเสนอราคาแล้ว';
+  } else if (upper.includes('REPEAT')) {
+    task = 'ติดตามลูกค้าซื้อซ้ำ (Repeat Order Due)';
+    statusText = '🔁 ถึงรอบซื้อซ้ำ';
+  }
+
+  const formattedValue = typeof dealValue === 'number' && dealValue > 0 ? `${dealValue.toLocaleString('th-TH')} บาท` : '-';
+
+  const text = `🔔 <b>มีงานใหม่สำหรับคุณ</b>
+
+👤 <b>ลูกค้า:</b>
+${escapeHtml(company)}
+
+📌 <b>งาน:</b>
+${escapeHtml(task)}
+
+💰 <b>มูลค่า:</b>
+<code>${formattedValue}</code>
+
+📅 <b>วันที่:</b>
+${escapeHtml(date)}
+
+👩‍💼 <b>ผู้รับผิดชอบ:</b>
+${escapeHtml(salesOwner)}
+
+⚡ <b>สถานะ:</b>
+<code>${escapeHtml(statusText)}</code>
+
+━━━━━━━━━━━━━━━━━━
+ℹ️ <i>กรุณาเปิด CRM เพื่อตรวจสอบรายละเอียดและบันทึกผล</i>`;
+
+  return {
+    text,
+    badgeEmoji,
+    headerColor: '#2563EB',
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '🔎 เปิดงาน', url: crmUrl },
+        ],
+      ],
+    },
+  };
+}
+
 export async function sendTelegramApiMessage(
   botToken: string,
   chatId: string,

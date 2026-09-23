@@ -186,37 +186,49 @@ CREATE TABLE IF NOT EXISTS public.telegram_queue (
 
 -- 11. Users Table (ผู้ใช้งานและสิทธิ์การเข้าถึง - Master Admin, Admin, Sales, Viewer)
 CREATE TABLE IF NOT EXISTS public.users (
-    id TEXT NOT NULL,
-    username TEXT NOT NULL,
-    password TEXT NOT NULL,
-    name TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'SALES'::text,
-    position TEXT NULL,
-    department TEXT NULL,
-    email TEXT NULL,
-    phone TEXT NULL,
-    avatar_url TEXT NULL,
-    status TEXT NOT NULL DEFAULT 'ACTIVE'::text,
-    sales_owner_tag TEXT NULL,
-    permissions JSONB NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMP WITH TIME ZONE NULL DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE NULL DEFAULT NOW(),
-    CONSTRAINT users_pkey PRIMARY KEY (id),
-    CONSTRAINT users_username_key UNIQUE (username)
-);
+  id text NOT NULL,
+  username text NOT NULL,
+  password text NOT NULL,
+  name text NOT NULL,
+  role text NOT NULL DEFAULT 'SALES'::text,
+  position text NULL,
+  department text NULL,
+  email text NULL,
+  phone text NULL,
+  avatar_url text NULL,
+  status text NOT NULL DEFAULT 'ACTIVE'::text,
+  sales_owner_tag text NULL,
+  permissions jsonb NULL DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NULL DEFAULT now(),
+  updated_at timestamp with time zone NULL DEFAULT now(),
+  telegram_chat_id text NULL,
+  telegram_connected boolean NULL DEFAULT false,
+  telegram_username text NULL,
+  sales_id text NULL,
+  CONSTRAINT users_pkey PRIMARY KEY (id),
+  CONSTRAINT users_username_key UNIQUE (username)
+) TABLESPACE pg_default;
 
--- Seed initial system users
-INSERT INTO public.users (id, username, password, name, email, phone, position, department, avatar_url, role, status, sales_owner_tag, permissions)
+CREATE INDEX IF NOT EXISTS idx_users_telegram_chat_id ON public.users USING btree (telegram_chat_id) TABLESPACE pg_default;
+CREATE INDEX IF NOT EXISTS idx_users_sales_id ON public.users USING btree (sales_id) TABLESPACE pg_default;
+
+-- Seed initial system users (including Sales team with Telegram IDs)
+INSERT INTO public.users (id, username, password, name, email, phone, position, department, avatar_url, role, status, sales_owner_tag, sales_id, telegram_chat_id, telegram_connected, telegram_username, permissions)
 VALUES 
-('USER-MASTER-ADMIN', 'master_admin', 'admin8888', 'Master Admin (ผู้ดูแลระบบสูงสุด)', 'master@ideva.co.th', '089-999-8888', 'Chief Technology Officer (CTO)', 'ฝ่ายบริหารระดับสูง (Executive)', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80', 'MASTER_ADMIN', 'ACTIVE', 'ALL', '{"canViewDashboard":true,"canManageCustomers":true,"canDeleteCustomers":true,"canManageOrders":true,"canManageActivities":true,"canViewReports":true,"canExportData":true,"canAccessSettings":true,"canManageUsers":true,"dataScope":"ALL"}'::jsonb),
-('USER-ADMIN', 'admin', 'admin1234', 'คุณพัฒน์ บริหารงาน (Admin)', 'admin@ideva.co.th', '081-111-2222', 'System Administrator', 'ฝ่ายเทคโนโลยีสารสนเทศ (IT)', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', 'ADMIN', 'ACTIVE', 'ALL', '{"canViewDashboard":true,"canManageCustomers":true,"canDeleteCustomers":true,"canManageOrders":true,"canManageActivities":true,"canViewReports":true,"canExportData":true,"canAccessSettings":true,"canManageUsers":true,"dataScope":"ALL"}'::jsonb),
-('USER-SALES-A', 'sales_a', 'sales1234', 'คุณสมชาย ใจดี (Sales A)', 'somchai@ideva.co.th', '081-234-5678', 'Senior Sales Executive', 'ฝ่ายขายและการตลาด (Sales)', 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80', 'SALES', 'ACTIVE', 'คุณสมชาย (Sales A)', '{"canViewDashboard":true,"canManageCustomers":true,"canDeleteCustomers":false,"canManageOrders":true,"canManageActivities":true,"canViewReports":true,"canExportData":true,"canAccessSettings":false,"canManageUsers":false,"dataScope":"OWN_ONLY"}'::jsonb),
-('USER-SALES-B', 'sales_b', 'sales1234', 'คุณนภา รัตนโชติ (Sales B)', 'napha@ideva.co.th', '082-345-6789', 'Sales Representative', 'ฝ่ายขายและการตลาด (Sales)', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80', 'SALES', 'ACTIVE', 'คุณนภา (Sales B)', '{"canViewDashboard":true,"canManageCustomers":true,"canDeleteCustomers":false,"canManageOrders":true,"canManageActivities":true,"canViewReports":true,"canExportData":true,"canAccessSettings":false,"canManageUsers":false,"dataScope":"OWN_ONLY"}'::jsonb),
-('USER-VIEWER', 'viewer', 'viewer1234', 'คุณกมล เฝ้าสังเกต (Viewer)', 'viewer@ideva.co.th', '083-456-7890', 'Auditor / Guest Observer', 'ฝ่ายตรวจสอบและประเมินผล (Audit)', 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80', 'VIEWER', 'ACTIVE', 'ALL', '{"canViewDashboard":true,"canManageCustomers":false,"canDeleteCustomers":false,"canManageOrders":false,"canManageActivities":false,"canViewReports":true,"canExportData":false,"canAccessSettings":false,"canManageUsers":false,"dataScope":"ALL"}'::jsonb)
+('USER-MASTER-ADMIN', 'master_admin', 'admin8888', 'Master Admin (ผู้ดูแลระบบสูงสุด)', 'master@ideva.co.th', '089-999-8888', 'Chief Technology Officer (CTO)', 'ฝ่ายบริหารระดับสูง (Executive)', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80', 'MASTER_ADMIN', 'ACTIVE', 'ALL', 'SALE_MASTER', '8085591847', true, 'Crmidevaos_bot', '{"canViewDashboard":true,"canManageCustomers":true,"canDeleteCustomers":true,"canManageOrders":true,"canManageActivities":true,"canViewReports":true,"canExportData":true,"canAccessSettings":true,"canManageUsers":true,"dataScope":"ALL"}'::jsonb),
+('USER-ITO-SAN', 'ito_san', 'ito1234', 'Ito San', 'ito@ideva.co.th', '081-808-5591', 'Senior Sales Executive / Key Account', 'ฝ่ายขายและการตลาด (Sales)', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80', 'SALES', 'ACTIVE', 'Ito San', 'SALE_001', '8085591847', true, 'ito_san', '{"canViewDashboard":true,"canManageCustomers":true,"canDeleteCustomers":false,"canManageOrders":true,"canManageActivities":true,"canViewReports":true,"canExportData":true,"canAccessSettings":false,"canManageUsers":false,"dataScope":"OWN_ONLY"}'::jsonb),
+('USER-IDEVA-01', 'ideva_group_01', 'ideva1234', 'IDEVA GROUP 01', 'group01@ideva.co.th', '088-894-6455', 'Sales Consultant & Customer Care', 'ฝ่ายขายและการตลาด (Sales)', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', 'SALES', 'ACTIVE', 'IDEVA GROUP 01', 'SALE_002', '8889464554', true, 'ideva_group_01', '{"canViewDashboard":true,"canManageCustomers":true,"canDeleteCustomers":false,"canManageOrders":true,"canManageActivities":true,"canViewReports":true,"canExportData":true,"canAccessSettings":false,"canManageUsers":false,"dataScope":"OWN_ONLY"}'::jsonb),
+('USER-PEAR-NPT', 'pearnpt', 'pear1234', 'Pear 🍐 (pearnpt)', 'pear@ideva.co.th', '087-108-9099', 'Key Account Executive', 'ฝ่ายขายและการตลาด (Sales)', 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80', 'SALES', 'ACTIVE', 'Pear 🍐', 'SALE_006', '8710890992', true, 'pearnpt', '{"canViewDashboard":true,"canManageCustomers":true,"canDeleteCustomers":false,"canManageOrders":true,"canManageActivities":true,"canViewReports":true,"canExportData":true,"canAccessSettings":false,"canManageUsers":false,"dataScope":"OWN_ONLY"}'::jsonb),
+('USER-ADMIN', 'admin', 'admin1234', 'คุณพัฒน์ บริหารงาน (Admin)', 'admin@ideva.co.th', '081-111-2222', 'System Administrator', 'ฝ่ายเทคโนโลยีสารสนเทศ (IT)', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', 'ADMIN', 'ACTIVE', 'ALL', 'SALE_ADMIN', '', false, '', '{"canViewDashboard":true,"canManageCustomers":true,"canDeleteCustomers":true,"canManageOrders":true,"canManageActivities":true,"canViewReports":true,"canExportData":true,"canAccessSettings":true,"canManageUsers":true,"dataScope":"ALL"}'::jsonb),
+('USER-VIEWER', 'viewer', 'viewer1234', 'คุณกมล เฝ้าสังเกต (Viewer)', 'viewer@ideva.co.th', '083-456-7890', 'Auditor / Guest Observer', 'ฝ่ายตรวจสอบและประเมินผล (Audit)', 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80', 'VIEWER', 'ACTIVE', 'ALL', 'SALE_005', '', false, '', '{"canViewDashboard":true,"canManageCustomers":false,"canDeleteCustomers":false,"canManageOrders":false,"canManageActivities":false,"canViewReports":true,"canExportData":false,"canAccessSettings":false,"canManageUsers":false,"dataScope":"ALL"}'::jsonb)
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
   password = EXCLUDED.password,
   role = EXCLUDED.role,
+  sales_id = EXCLUDED.sales_id,
+  telegram_chat_id = EXCLUDED.telegram_chat_id,
+  telegram_connected = EXCLUDED.telegram_connected,
+  telegram_username = EXCLUDED.telegram_username,
   permissions = EXCLUDED.permissions;
 
 -- Disable Row Level Security (RLS) for public open API access

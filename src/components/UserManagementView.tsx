@@ -90,20 +90,72 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
   // Form State
   const [formData, setFormData] = useState<Partial<AppUser>>({
+    salesId: 'SALE_001',
     username: '',
     password: '',
     firstName: '',
     lastName: '',
     name: '',
     email: '',
+    phone: '',
     position: '',
     department: 'ฝ่ายขาย (Sales)',
     avatarUrl: PRESET_AVATARS[0],
     role: 'SALES',
     status: 'ACTIVE',
     salesOwnerTag: '',
+    telegramChatId: '',
+    telegramConnected: false,
+    telegramUsername: '',
     permissions: DEFAULT_PERMISSIONS.SALES,
   });
+
+  const [testingTelegram, setTestingTelegram] = useState(false);
+
+  const handleTestPrivateTelegram = async (chatId?: string, salesName?: string, salesId?: string) => {
+    const targetChatId = chatId || formData.telegramChatId;
+    const targetName = salesName || formData.name || 'พนักงานขาย';
+    const targetSalesId = salesId || formData.salesId || formData.id;
+
+    if (!targetChatId) {
+      showFeedback('กรุณาระบุ Telegram Chat ID หรือให้พนักงานกดเชื่อมต่อผ่านบอทก่อนทดสอบ', 'error');
+      return;
+    }
+
+    try {
+      setTestingTelegram(true);
+      const res = await fetch('/api/telegram/test-private', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatId: targetChatId,
+          salesName: targetName,
+          salesId: targetSalesId,
+          type: 'FOLLOW_UP',
+          payload: {
+            companyName: 'บริษัท ทดสอบเทเลแกรม จำกัด',
+            contactName: 'คุณสมชาย ใจดี',
+            phone: '081-234-5678',
+            salesOwner: targetName,
+            nextAction: 'ทดสอบส่งข้อความแจ้งเตือนส่วนตัว (Private Alert)',
+            dealValue: 145000,
+            nextFollowUpDate: new Date().toISOString().split('T')[0],
+            customerId: 'CUST-TEST',
+          },
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showFeedback(`✅ ส่งข้อความทดสอบไปยัง Telegram ส่วนตัวของ "${targetName}" (Chat ID: ${targetChatId}) สำเร็จ!`);
+      } else {
+        showFeedback(`❌ ส่งไม่สำเร็จ: ${data.error || data.response?.description || 'Error'}`, 'error');
+      }
+    } catch (e: any) {
+      showFeedback(`เกิดข้อผิดพลาด: ${e.message}`, 'error');
+    } finally {
+      setTestingTelegram(false);
+    }
+  };
 
   const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
     setFeedbackMessage({ text, type });
@@ -193,8 +245,10 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     setInputAvatarUrl(defaultAvatar);
     setCopiedAvatarLink(false);
     setShowPassword(false);
+    const nextSalesNum = users.length + 1;
     setFormData({
       id: `USER-${Date.now()}`,
+      salesId: `SALE_${String(nextSalesNum).padStart(3, '0')}`,
       username: '',
       password: '',
       firstName: '',
@@ -208,6 +262,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       role: 'SALES',
       status: 'ACTIVE',
       salesOwnerTag: '',
+      telegramChatId: '',
+      telegramConnected: false,
+      telegramUsername: '',
       permissions: { ...DEFAULT_PERMISSIONS.SALES },
     });
     setIsModalOpen(true);
@@ -239,10 +296,14 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
     setFormData({
       ...user,
+      salesId: user.salesId || `SALE_${user.id.replace('USER-', '')}`,
       firstName,
       lastName,
       name: fullName,
       avatarUrl: userAvatar,
+      telegramChatId: user.telegramChatId || '',
+      telegramConnected: user.telegramConnected !== undefined ? user.telegramConnected : Boolean(user.telegramChatId),
+      telegramUsername: user.telegramUsername || '',
       permissions: { ...(user.permissions || DEFAULT_PERMISSIONS[user.role] || DEFAULT_PERMISSIONS.SALES) },
     });
     setIsModalOpen(true);
@@ -268,8 +329,12 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     const firstName = formData.firstName?.trim() || nameParts[0] || '';
     const lastName = formData.lastName?.trim() || nameParts.slice(1).join(' ') || '';
 
+    const tgChatId = formData.telegramChatId?.trim() || undefined;
+    const isTgConnected = Boolean(tgChatId) || Boolean(formData.telegramConnected);
+
     const userToSave: AppUser = {
       id: formData.id || `USER-${Date.now()}`,
+      salesId: formData.salesId?.trim() || undefined,
       username: formData.username.trim().toLowerCase(),
       password: formData.password || '123456',
       firstName: firstName,
@@ -283,6 +348,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       role: (formData.role as UserRole) || 'SALES',
       status: (formData.status as UserStatus) || 'ACTIVE',
       salesOwnerTag: formData.salesOwnerTag?.trim() || (formData.role === 'SALES' ? fullName : 'ALL'),
+      telegramChatId: tgChatId,
+      telegramConnected: isTgConnected,
+      telegramUsername: formData.telegramUsername?.trim() || undefined,
       permissions: formData.permissions || DEFAULT_PERMISSIONS[formData.role || 'SALES'],
       createdAt: formData.createdAt || new Date().toISOString().split('T')[0],
       updatedAt: new Date().toISOString().split('T')[0],
@@ -377,12 +445,13 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   }, [users]);
 
   const USERS_SQL_SCRIPT = `-- ====================================================================
--- SUPABASE USERS TABLE SQL SCRIPT (สำหรับตารางผู้ใช้งาน & กำหนดสิทธิ์)
+-- SUPABASE USERS & TELEGRAM MAPPING TABLE SQL SCRIPT
 -- Copy and run this in Supabase SQL Editor
 -- ====================================================================
 
 create table if not exists public.users (
   id text not null,
+  sales_id text null,
   username text not null,
   password text not null,
   name text not null,
@@ -394,6 +463,9 @@ create table if not exists public.users (
   avatar_url text null,
   status text not null default 'ACTIVE'::text,
   sales_owner_tag text null,
+  telegram_chat_id text null,
+  telegram_connected boolean default false,
+  telegram_username text null,
   permissions jsonb null default '{}'::jsonb,
   created_at timestamp with time zone null default now(),
   updated_at timestamp with time zone null default now(),
@@ -403,16 +475,40 @@ create table if not exists public.users (
 
 ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
 
--- Seed Data (ข้อมูลเริ่มต้น 6 ผู้ใช้งาน)
-INSERT INTO public.users (id, username, password, name, role, position, department, email, phone, avatar_url, status, sales_owner_tag, permissions)
+-- 2. Create notification_deliveries table for tracking and duplicate protection
+create table if not exists public.notification_deliveries (
+  id uuid primary key default gen_random_uuid(),
+  notification_id text null,
+  event_id text null,
+  recipient_type text not null default 'sales',
+  recipient_id text null,
+  recipient_name text null,
+  telegram_chat_id text not null,
+  channel text not null, -- 'telegram_group' | 'telegram_private'
+  topic_thread_id bigint null,
+  telegram_message_id bigint null,
+  status text not null default 'sent', -- 'sent' | 'failed' | 'not_connected' | 'skipped'
+  error_message text null,
+  sent_at timestamp with time zone default now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_chat ON public.notification_deliveries(telegram_chat_id);
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event ON public.notification_deliveries(event_id, channel);
+
+-- Seed Data (ข้อมูลเริ่มต้นรวมพนักงานขายและ Telegram Chat ID ที่ผ่านการทดสอบแล้ว)
+INSERT INTO public.users (id, sales_id, username, password, name, role, position, department, email, phone, avatar_url, status, sales_owner_tag, telegram_chat_id, telegram_connected, telegram_username, permissions)
 VALUES 
-  ('USER-MASTER-ADMIN', 'master_admin', 'admin8888', 'Master Admin (ผู้ดูแลระบบสูงสุด)', 'MASTER_ADMIN', 'Chief Technology Officer (CTO)', 'ฝ่ายบริหารระดับสูง (Executive)', 'master@ideva.co.th', '081-999-8888', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": true, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": true, "canViewDashboard": true, "canAccessSettings": true, "canExportData": true}'),
-  ('USER-ADMIN', 'admin', 'admin1234', 'คุณพัฒน์ บริหารงาน (Admin)', 'ADMIN', 'System Administrator', 'ฝ่ายเทคโนโลยีสารสนเทศ (IT)', 'admin@ideva.co.th', '082-345-6789', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": true, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": true, "canViewDashboard": true, "canAccessSettings": true, "canExportData": true}'),
-  ('USER-SALES-A', 'sales_a', 'sales1234', 'คุณสมชาย ใจดี (Sales A)', 'SALES', 'Senior Sales Executive', 'ฝ่ายขายและการตลาด (Sales)', 'somchai@ideva.co.th', '089-123-4567', 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'คุณสมชาย (Sales A)', '{"dataScope": "OWN_ONLY", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
-  ('USER-SALES-B', 'sales_b', 'sales1234', 'คุณนภา รัตนโชติ (Sales B)', 'SALES', 'Sales Representative', 'ฝ่ายขายและการตลาด (Sales)', 'napha@ideva.co.th', '086-789-0123', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'คุณนภา (Sales B)', '{"dataScope": "OWN_ONLY", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
-  ('USER-VIEWER', 'viewer', 'viewer1234', 'คุณกมล เฝ้าสังเกต (Viewer)', 'VIEWER', 'Auditor / Guest Observer', 'ฝ่ายตรวจสอบและประเมินผล (Audit)', 'viewer@ideva.co.th', '085-456-7890', 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": false, "canManageCustomers": false, "canManageOrders": false, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
-  ('USER-ART-KITTHANA', 'artkitthana', 'art8888', 'ART KITTHANA', 'MASTER_ADMIN', 'เจ้าหน้าที่ฝ่ายขาย', 'ฝ่ายขายและการตลาด (Sales)', 'cmsidevaos@gmail.com', '081-111-2222', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": true, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": true, "canViewDashboard": true, "canAccessSettings": true, "canExportData": true}')
+  ('USER-MASTER-ADMIN', 'SALE_MASTER', 'master_admin', 'admin8888', 'Master Admin (ผู้ดูแลระบบสูงสุด)', 'MASTER_ADMIN', 'Chief Technology Officer (CTO)', 'ฝ่ายบริหารระดับสูง (Executive)', 'master@ideva.co.th', '081-999-8888', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', '8085591847', true, 'ito_san', '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": true, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": true, "canViewDashboard": true, "canAccessSettings": true, "canExportData": true}'),
+  ('USER-ITO-SAN', 'SALE_001', 'ito_san', 'ito1234', 'Ito San', 'SALES', 'Key Account Executive', 'ฝ่ายขายและการตลาด (Sales)', 'ito@ideva.co.th', '081-234-5678', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'Ito San', '8085591847', true, 'ito_san', '{"dataScope": "OWN_ONLY", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
+  ('USER-IDEVA-01', 'SALE_002', 'ideva_group_01', 'ideva1234', 'IDEVA GROUP 01', 'SALES', 'Sales Consultant & Customer Care', 'ฝ่ายขายและการตลาด (Sales)', 'group01@ideva.co.th', '088-894-6455', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'IDEVA GROUP 01', '8889464554', true, 'ideva_group_01', '{"dataScope": "OWN_ONLY", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
+  ('USER-PEAR-NPT', 'SALE_006', 'pearnpt', 'pear1234', 'Pear 🍐 (pearnpt)', 'SALES', 'Key Account Executive', 'ฝ่ายขายและการตลาด (Sales)', 'pear@ideva.co.th', '087-108-9099', 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'Pear 🍐', '8710890992', true, 'pearnpt', '{"dataScope": "OWN_ONLY", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
+  ('USER-ADMIN', 'SALE_ADMIN', 'admin', 'admin1234', 'คุณพัฒน์ บริหารงาน (Admin)', 'ADMIN', 'System Administrator', 'ฝ่ายเทคโนโลยีสารสนเทศ (IT)', 'admin@ideva.co.th', '082-345-6789', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', null, false, null, '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": true, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": true, "canViewDashboard": true, "canAccessSettings": true, "canExportData": true}'),
+  ('USER-SALES-A', 'SALE_003', 'sales_a', 'sales1234', 'คุณสมชาย ใจดี (Sales A)', 'SALES', 'Senior Sales Executive', 'ฝ่ายขายและการตลาด (Sales)', 'somchai@ideva.co.th', '089-123-4567', 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'คุณสมชาย (Sales A)', null, false, null, '{"dataScope": "OWN_ONLY", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
+  ('USER-SALES-B', 'SALE_004', 'sales_b', 'sales1234', 'คุณนภา รัตนโชติ (Sales B)', 'SALES', 'Sales Representative', 'ฝ่ายขายและการตลาด (Sales)', 'napha@ideva.co.th', '086-789-0123', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'คุณนภา (Sales B)', null, false, null, '{"dataScope": "OWN_ONLY", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
+  ('USER-VIEWER', 'SALE_005', 'viewer', 'viewer1234', 'คุณกมล เฝ้าสังเกต (Viewer)', 'VIEWER', 'Auditor / Guest Observer', 'ฝ่ายตรวจสอบและประเมินผล (Audit)', 'viewer@ideva.co.th', '085-456-7890', 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', null, false, null, '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": false, "canManageActivities": false, "canManageCustomers": false, "canManageOrders": false, "canManageUsers": false, "canViewDashboard": true, "canAccessSettings": false, "canExportData": false}'),
+  ('USER-ART-KITTHANA', 'SALE_ART', 'artkitthana', 'art8888', 'ART KITTHANA', 'MASTER_ADMIN', 'เจ้าหน้าที่ฝ่ายขาย', 'ฝ่ายขายและการตลาด (Sales)', 'cmsidevaos@gmail.com', '081-111-2222', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80', 'ACTIVE', 'ALL', '8085591847', true, 'ito_san', '{"dataScope": "ALL", "canViewReports": true, "canDeleteCustomers": true, "canManageActivities": true, "canManageCustomers": true, "canManageOrders": true, "canManageUsers": true, "canViewDashboard": true, "canAccessSettings": true, "canExportData": true}')
 ON CONFLICT (id) DO UPDATE SET
+  sales_id = EXCLUDED.sales_id,
   username = EXCLUDED.username,
   password = EXCLUDED.password,
   name = EXCLUDED.name,
@@ -424,6 +520,9 @@ ON CONFLICT (id) DO UPDATE SET
   avatar_url = EXCLUDED.avatar_url,
   status = EXCLUDED.status,
   sales_owner_tag = EXCLUDED.sales_owner_tag,
+  telegram_chat_id = EXCLUDED.telegram_chat_id,
+  telegram_connected = EXCLUDED.telegram_connected,
+  telegram_username = EXCLUDED.telegram_username,
   permissions = EXCLUDED.permissions,
   updated_at = NOW();
 `;
@@ -579,6 +678,7 @@ ON CONFLICT (id) DO UPDATE SET
                 <th className="py-3.5 px-4">ตำแหน่ง & แผนก</th>
                 <th className="py-3.5 px-4">บทบาท (Role)</th>
                 <th className="py-3.5 px-4">สิทธิ์การเข้าถึง (Permissions)</th>
+                <th className="py-3.5 px-4">Telegram ส่วนตัว (Private Alert)</th>
                 <th className="py-3.5 px-4">สถานะ</th>
                 <th className="py-3.5 px-4 text-center">Action</th>
               </tr>
@@ -586,7 +686,7 @@ ON CONFLICT (id) DO UPDATE SET
             <tbody className="divide-y divide-slate-100">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-slate-400">
+                  <td colSpan={8} className="text-center py-12 text-slate-400">
                     ไม่พบผู้ใช้งานที่ตรงกับเงื่อนไขการค้นหา
                   </td>
                 </tr>
@@ -689,6 +789,45 @@ ON CONFLICT (id) DO UPDATE SET
                             </span>
                           )}
                         </div>
+                      </td>
+
+                      {/* Telegram Status & Direct Link */}
+                      <td className="py-3 px-4">
+                        {u.telegramChatId || u.telegramConnected ? (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                              🟢 Connected
+                            </span>
+                            <div className="text-[10px] font-mono text-slate-500">
+                              Chat ID: <code className="font-bold text-blue-600">{u.telegramChatId}</code>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleTestPrivateTelegram(u.telegramChatId, u.name, u.salesId || u.id)}
+                              className="text-[10px] font-bold text-blue-600 hover:text-blue-800 underline flex items-center gap-1 cursor-pointer"
+                              title="ทดสอบส่งข้อความเข้า Telegram พนักงานคนนี้"
+                            >
+                              <Sparkles size={10} /> ส่งข้อความทดสอบ
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
+                              🔴 Not Connected
+                            </span>
+                            <div>
+                              <a
+                                href={`https://t.me/Crmidevaos_bot?start=${u.salesId || u.id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[10px] font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1 underline"
+                              >
+                                <LinkIcon size={10} /> เชื่อม Telegram
+                              </a>
+                            </div>
+                          </div>
+                        )}
                       </td>
 
                       {/* Status */}
@@ -958,6 +1097,93 @@ ON CONFLICT (id) DO UPDATE SET
                       placeholder="เช่น คุณสมชาย (Sales A)"
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-600"
                     />
+                  </div>
+                </div>
+              </div>
+
+              {/* Telegram Integration Card */}
+              <div className="p-4 bg-gradient-to-r from-blue-50/70 to-indigo-50/70 rounded-2xl border border-blue-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-blue-900 flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-blue-600" />
+                    การเชื่อมต่อ Telegram ส่วนตัว (Telegram Private Alert)
+                  </span>
+                  {formData.telegramChatId ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                      🟢 เชื่อมต่อแล้ว (Connected)
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                      🔴 ยังไม่เชื่อมต่อ (Not Connected)
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="space-y-1">
+                    <label className="block font-semibold text-slate-700">รหัสพนักงาน (Sales ID)</label>
+                    <input
+                      type="text"
+                      value={formData.salesId || ''}
+                      onChange={(e) => setFormData({ ...formData, salesId: e.target.value })}
+                      placeholder="เช่น SALE_001"
+                      className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 font-bold"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block font-semibold text-slate-700">Telegram Chat ID</label>
+                    <input
+                      type="text"
+                      value={formData.telegramChatId || ''}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        telegramChatId: e.target.value,
+                        telegramConnected: Boolean(e.target.value)
+                      })}
+                      placeholder="เช่น 8085591847"
+                      className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 text-blue-600 font-bold"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block font-semibold text-slate-700">Telegram Username</label>
+                    <input
+                      type="text"
+                      value={formData.telegramUsername || ''}
+                      onChange={(e) => setFormData({ ...formData, telegramUsername: e.target.value })}
+                      placeholder="เช่น pearnpt หรือ ito_san"
+                      className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-blue-200/60">
+                  <div className="text-[11px] text-slate-600">
+                    🔗 ลิงก์เชื่อมต่อบอท: <code className="bg-white px-2 py-0.5 rounded border border-blue-200 text-blue-700 font-mono font-bold select-all">https://t.me/Crmidevaos_bot?start={formData.salesId || formData.id || 'SALE_001'}</code>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`https://t.me/Crmidevaos_bot?start=${formData.salesId || formData.id || 'SALE_001'}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-1.5"
+                    >
+                      <ExternalLink size={12} /> เปิดบอทเพื่อเชื่อมต่อ
+                    </a>
+                    {formData.telegramChatId && (
+                      <button
+                        type="button"
+                        disabled={testingTelegram}
+                        onClick={() => handleTestPrivateTelegram(formData.telegramChatId, formData.name, formData.salesId)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {testingTelegram ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                        <span>ส่งข้อความทดสอบ</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

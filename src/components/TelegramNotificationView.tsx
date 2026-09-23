@@ -1,4 +1,4 @@
-import { apiClient } from '../services/apiClient';
+import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -25,13 +25,15 @@ import {
   Sparkles,
   Terminal,
   Trash2,
+  User,
+  Users,
   XCircle,
   Zap
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import { apiClient } from '../services/apiClient';
 import { TELEGRAM_QUICK_FIX_SCRIPT, TELEGRAM_SQL_SETUP_SCRIPT } from '../data/telegramSqlScripts';
-import { buildTelegramCard, defaultTelegramSettings, defaultTelegramTopics } from '../services/telegramService';
-import { TelegramNotificationLog, TelegramQueueItem, TelegramRules, TelegramSettings, TelegramTopic } from '../types';
+import { buildTelegramCard, buildPrivateTelegramCard, defaultTelegramSettings, defaultTelegramTopics } from '../services/telegramService';
+import { AppUser, TelegramNotificationLog, TelegramQueueItem, TelegramRules, TelegramSettings, TelegramTopic } from '../types';
 
 interface TelegramNotificationViewProps {
   onOpenCustomer?: (customerId: string) => void;
@@ -43,11 +45,14 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
   const [topics, setTopics] = useState<TelegramTopic[]>(defaultTelegramTopics);
   const [logs, setLogs] = useState<TelegramNotificationLog[]>([]);
   const [queue, setQueue] = useState<TelegramQueueItem[]>([]);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [selectedSalesId, setSelectedSalesId] = useState<string>('SALE_001');
   const [loading, setLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Test notification state
   const [testType, setTestType] = useState<string>('FOLLOW_UP');
+  const [testMode, setTestMode] = useState<'GROUP' | 'PRIVATE'>('PRIVATE');
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
   const [copiedQuickFix, setCopiedQuickFix] = useState(false);
@@ -57,17 +62,19 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
   const fetchTelegramData = async () => {
     try {
       setLoading(true);
-      const [sData, lData, qData, tData] = await Promise.all([
+      const [sData, lData, qData, tData, uData] = await Promise.all([
         apiClient.getTelegramSettings(),
         apiClient.getTelegramLogs(),
         apiClient.getTelegramQueue(),
         apiClient.getTelegramTopics(),
+        apiClient.getUsers(),
       ]);
 
       if (sData && sData.bot_token) setSettings(sData);
       if (Array.isArray(lData)) setLogs(lData);
       if (Array.isArray(qData)) setQueue(qData);
       if (Array.isArray(tData) && tData.length > 0) setTopics(tData);
+      if (Array.isArray(uData) && uData.length > 0) setUsers(uData);
     } catch (err) {
       console.error('Error fetching Telegram data:', err);
     } finally {
@@ -121,7 +128,7 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
     }));
   };
 
-  // Send Test Notification API call
+  // Send Test Notification API call (Group)
   const handleSendTestNotification = async (typeToTest?: string) => {
     const targetType = typeToTest || testType;
     setTestStatus('กำลังส่งข้อความแจ้งเตือน Rich Card ไปยัง Telegram Group...');
@@ -133,11 +140,60 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
       });
       const data = await res.json();
       if (data.success) {
-        setTestStatus(`✅ ส่งการ์ด ${targetType} สำเร็จ! (Message ID: ${data.messageId}, Topic Thread: ${data.topicThreadId || 'General'})`);
-        showToast(`🚀 ส่งการ์ด Telegram [${targetType}] เรียบร้อยแล้ว!`);
+        setTestStatus(`✅ ส่งการ์ดกลุ่ม [${targetType}] สำเร็จ! (Message ID: ${data.messageId}, Topic Thread: ${data.topicThreadId || 'General'})`);
+        showToast(`🚀 ส่งการ์ด Telegram Group [${targetType}] เรียบร้อยแล้ว!`);
         fetchTelegramData();
       } else {
         const errMsg = data.response?.description || data.response?.error || 'ส่งข้อความไม่สำเร็จ';
+        setTestStatus(`❌ ส่งล้มเหลว: ${errMsg}`);
+        showToast(`❌ ส่งไม่สำเร็จ: ${errMsg}`);
+      }
+    } catch (err: any) {
+      setTestStatus(`❌ ข้อผิดพลาดเครือข่าย: ${err.message}`);
+    }
+  };
+
+  // Send Test Private Notification API call (Individual Sales Person)
+  const handleSendTestPrivateNotification = async () => {
+    const targetUser = users.find((u) => u.salesId === selectedSalesId || u.id === selectedSalesId);
+    const targetName = targetUser?.name || 'พนักงานฝ่ายขาย';
+    const targetChatId = targetUser?.telegramChatId || '';
+
+    if (!targetChatId) {
+      setTestStatus(`⚠️ พนักงาน ${targetName} ยังไม่ได้เชื่อมต่อ Telegram Chat ID กรุณาเชื่อมต่อในหน้าจัดการผู้ใช้งาน`);
+      showToast(`⚠️ พนักงาน ${targetName} ยังไม่ได้เชื่อมต่อ Telegram`);
+      return;
+    }
+
+    setTestStatus(`กำลังส่งข้อความแจ้งเตือนส่วนตัว (Private Message) ไปยัง ${targetName} (Chat ID: ${targetChatId})...`);
+    try {
+      const res = await fetch('/api/telegram/test-private', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salesId: selectedSalesId,
+          salesName: targetName,
+          chatId: targetChatId,
+          type: testType,
+          payload: {
+            companyName: 'บริษัท เอบีซี อินโนเวชั่น จำกัด (ABC COMPANY)',
+            contactName: 'คุณสมชาย ใจดี',
+            phone: '081-234-5678',
+            salesOwner: targetName,
+            nextAction: 'ติดตามใบเสนอราคาและสรุปคำสั่งซื้อ',
+            dealValue: 145000,
+            nextFollowUpDate: new Date().toISOString().split('T')[0],
+            customerId: 'CUST-001',
+          },
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTestStatus(`✅ ส่งข้อความส่วนตัวไปยัง ${targetName} สำเร็จ! (Chat ID: ${data.chatId}, Message ID: ${data.messageId})`);
+        showToast(`🚀 ส่ง Telegram ส่วนตัวถึง ${targetName} สำเร็จ!`);
+        fetchTelegramData();
+      } else {
+        const errMsg = data.error || data.response?.description || 'ส่งข้อความไม่สำเร็จ';
         setTestStatus(`❌ ส่งล้มเหลว: ${errMsg}`);
         showToast(`❌ ส่งไม่สำเร็จ: ${errMsg}`);
       }
@@ -193,15 +249,19 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
     setTimeout(() => setCopiedQuickFix(false), 3000);
   };
 
-  // Current Card Preview for live viewer
-  const liveCardPreview = buildTelegramCard(testType, {
+  // Selected User Object & Live Card Preview
+  const selectedUserObj = users.find((u) => u.salesId === selectedSalesId || u.id === selectedSalesId);
+  const selectedSalesName = selectedUserObj?.name || 'พนักงานขาย';
+  const selectedChatId = selectedUserObj?.telegramChatId || '';
+
+  const previewPayload = {
     companyName: 'บริษัท เอบีซี อินโนเวชั่น จำกัด',
     contactName: 'คุณสมชาย ใจดี',
     phone: '081-234-5678',
     lineId: 'somchai_abc',
     nextFollowUpDate: '30/07/2026 10:00',
     overdueDays: 4,
-    salesOwner: 'คุณอนุชา (Sales Manager)',
+    salesOwner: testMode === 'PRIVATE' ? selectedSalesName : 'คุณอนุชา (Sales Manager)',
     nextAction: 'โทรติดตามใบเสนอราคาเซ็ตครีมกันแดด 500 ชิ้น',
     dealValue: 85000,
     productName: 'ครีมกันแดด SPF50+ PA++++ (1,000 ชิ้น)',
@@ -213,7 +273,11 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
     reason: 'คู่แข่งให้ส่วนลด 15% พร้อมแถมสินค้าทดลอง',
     competitor: 'Brand X Global',
     customerId: 'CUST-001',
-  });
+  };
+
+  const liveCardPreview = testMode === 'PRIVATE'
+    ? buildPrivateTelegramCard(testType, previewPayload)
+    : buildTelegramCard(testType, previewPayload);
 
   const ruleLabels: { key: keyof TelegramRules; label: string; desc: string; emoji: string }[] = [
     { key: 'notifyOverdue', label: 'Overdue Follow-up', desc: 'แจ้งเตือนเมื่อเลยกำหนดติดตามลูกค้า (เกิน 1 วันขึ้นไป)', emoji: '🔴' },
@@ -401,6 +465,65 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
               </p>
             </div>
 
+            {/* Notification Target Mode: Group vs Private Sales */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
+              <label className="block text-xs font-bold text-slate-700">ช่องทางการส่งแจ้งเตือน (Target Recipient)</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTestMode('PRIVATE')}
+                  className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                    testMode === 'PRIVATE'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <User size={14} /> ส่วนตัวพนักงาน (Private)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTestMode('GROUP')}
+                  className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                    testMode === 'GROUP'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <Users size={14} /> กลุ่มกลาง (Group)
+                </button>
+              </div>
+
+              {testMode === 'PRIVATE' && (
+                <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
+                  <label className="block text-[11px] font-bold text-slate-600">เลือกพนักงานฝ่ายขาย (Sales Rep):</label>
+                  <select
+                    value={selectedSalesId}
+                    onChange={(e) => setSelectedSalesId(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-bold text-xs text-slate-800 focus:ring-2 focus:ring-blue-500"
+                  >
+                    {users.map((u) => (
+                      <option key={u.id} value={u.salesId || u.id}>
+                        {u.name} ({u.salesId || u.id}) {u.telegramChatId ? `[Chat ID: ${u.telegramChatId}]` : '[ยังไม่เชื่อมต่อ]'}
+                      </option>
+                    ))}
+                    {!users.some((u) => u.name === 'Ito San') && (
+                      <option value="SALE_001">Ito San (SALE_001) [Chat ID: 8085591847]</option>
+                    )}
+                    {!users.some((u) => u.name === 'IDEVA GROUP 01') && (
+                      <option value="SALE_002">IDEVA GROUP 01 (SALE_002) [Chat ID: 8889464554]</option>
+                    )}
+                  </select>
+
+                  <div className="flex items-center justify-between text-[11px] px-1 text-slate-500">
+                    <span>Chat ID: <code className="font-bold text-blue-600 font-mono">{selectedChatId || 'Not connected'}</code></span>
+                    <span className={selectedChatId ? 'text-emerald-600 font-bold' : 'text-amber-600 font-bold'}>
+                      {selectedChatId ? '● พร้อมรับข้อความ' : '○ รอเชื่อมต่อ Telegram'}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
               <label className="block text-xs font-bold text-slate-700">เหตุการณ์การทำงาน (Event Type)</label>
               <select
@@ -454,12 +577,21 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
             </div>
 
             <div className="pt-2 space-y-2">
-              <button
-                onClick={() => handleSendTestNotification(testType)}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
-              >
-                <Send size={15} /> ส่งข้อความนี้เข้า Telegram Group จริงทันที
-              </button>
+              {testMode === 'PRIVATE' ? (
+                <button
+                  onClick={handleSendTestPrivateNotification}
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                >
+                  <Send size={15} /> ส่งข้อความนี้เข้า Telegram ส่วนตัว ({selectedSalesName}) ทันที
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleSendTestNotification(testType)}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                >
+                  <Send size={15} /> ส่งข้อความนี้เข้า Telegram Group จริงทันที
+                </button>
+              )}
             </div>
           </div>
 
@@ -870,35 +1002,64 @@ export const TelegramNotificationView: React.FC<TelegramNotificationViewProps> =
                   <tr className="bg-slate-100 font-bold text-slate-700 border-b">
                     <th className="py-2.5 px-3">Log ID</th>
                     <th className="py-2.5 px-3">Type</th>
-                    <th className="py-2.5 px-3">Telegram Chat ID</th>
-                    <th className="py-2.5 px-3">Message ID</th>
+                    <th className="py-2.5 px-3">ช่องทางผู้รับ (Recipient / Channel)</th>
+                    <th className="py-2.5 px-3">Chat ID</th>
+                    <th className="py-2.5 px-3">Telegram Message ID</th>
                     <th className="py-2.5 px-3">Status</th>
                     <th className="py-2.5 px-3">Timestamp</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-                  {logs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-50">
-                      <td className="py-2.5 px-3 font-bold text-slate-800">{log.id}</td>
-                      <td className="py-2.5 px-3">
-                        <span className="bg-slate-200 text-slate-800 font-bold px-2 py-0.5 rounded text-[10px]">
-                          {log.notification_type}
-                        </span>
+                  {logs.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-6 text-center text-slate-400 font-sans">
+                        ยังไม่มีประวัติการส่งแจ้งเตือนในระบบ
                       </td>
-                      <td className="py-2.5 px-3 text-slate-600">{log.telegram_chat_id || '-'}</td>
-                      <td className="py-2.5 px-3 font-bold text-blue-600">#{log.telegram_message_id || 'N/A'}</td>
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`font-bold px-2 py-0.5 rounded text-[10px] ${
-                            log.status === 'SENT' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                          }`}
-                        >
-                          {log.status}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-slate-500">{log.created_at}</td>
                     </tr>
-                  ))}
+                  ) : (
+                    logs.map((log) => {
+                      const isPrivate = log.notification_type?.includes('PRIVATE') || !log.telegram_chat_id?.startsWith('-');
+                      return (
+                        <tr key={log.id} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-bold text-slate-800">{log.id}</td>
+                          <td className="py-2.5 px-3">
+                            <span className="bg-slate-200 text-slate-800 font-bold px-2 py-0.5 rounded text-[10px]">
+                              {log.notification_type}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-sans">
+                            {isPrivate ? (
+                              <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold px-2 py-0.5 rounded-md text-[10px]">
+                                <User size={11} /> ส่วนตัวพนักงาน (Private)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 font-bold px-2 py-0.5 rounded-md text-[10px]">
+                                <Users size={11} /> กลุ่มกลาง (Group Alert)
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 font-mono">{log.telegram_chat_id || '-'}</td>
+                          <td className="py-2.5 px-3 font-bold text-blue-600">
+                            {log.telegram_message_id ? `#${log.telegram_message_id}` : 'N/A'}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`font-bold px-2 py-0.5 rounded text-[10px] ${
+                                log.status === 'SENT'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : log.status === 'NOT_CONNECTED'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {log.status}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-500 font-sans">{log.created_at}</td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>

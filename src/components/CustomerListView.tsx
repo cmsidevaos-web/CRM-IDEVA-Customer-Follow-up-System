@@ -10,8 +10,8 @@ import {
   Trash2,
   UserCheck
 } from 'lucide-react';
-import React, { useState } from 'react';
-import { Customer, CustomerStatus, ViewTab } from '../types';
+import React, { useMemo, useState } from 'react';
+import { AppUser, Customer, CustomerStatus, ViewTab } from '../types';
 
 interface CustomerListViewProps {
   customers?: Customer[];
@@ -24,6 +24,7 @@ interface CustomerListViewProps {
   onEditCustomer?: (customer: Customer) => void;
   onDeleteCustomer?: (customer: Customer) => void;
   onExportData?: (type: 'EXCEL' | 'PDF') => void;
+  users?: AppUser[];
 }
 
 export const CustomerListView: React.FC<CustomerListViewProps> = ({
@@ -37,6 +38,7 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
   onEditCustomer = (_c: Customer) => {},
   onDeleteCustomer = (_c: Customer) => {},
   onExportData = (_type: 'EXCEL' | 'PDF') => {},
+  users = [],
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>(initialStatusFilter || 'ALL');
@@ -47,6 +49,21 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
   const itemsPerPage = 10;
 
   const safeCustomers = customers || [];
+
+  // Extract unique sales list from users and existing customers
+  const salesOptions = useMemo(() => {
+    const list = new Set<string>();
+    if (Array.isArray(users)) {
+      users.forEach((u) => {
+        if (u.salesOwnerTag) list.add(u.salesOwnerTag);
+        else if (u.name) list.add(u.name);
+      });
+    }
+    safeCustomers.forEach((c) => {
+      if (c.salesOwner) list.add(c.salesOwner);
+    });
+    return Array.from(list);
+  }, [users, safeCustomers]);
 
   // Filtering Logic
   const filteredCustomers = safeCustomers.filter((c) => {
@@ -198,10 +215,12 @@ export const CustomerListView: React.FC<CustomerListViewProps> = ({
             }}
             className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-slate-700 font-medium focus:outline-none cursor-pointer"
           >
-            <option value="ALL">ทั้งหมด</option>
-            <option value="คุณสมชาย (Sales A)">คุณสมชาย (Sales A)</option>
-            <option value="คุณนภา (Sales B)">คุณนภา (Sales B)</option>
-            <option value="คุณวิชัย (Manager)">คุณวิชัย (Manager)</option>
+            <option value="ALL">ทั้งหมด (ทุกฝ่ายขาย)</option>
+            {salesOptions.map((sales) => (
+              <option key={sales} value={sales}>
+                {sales}
+              </option>
+            ))}
           </select>
         </div>
 
