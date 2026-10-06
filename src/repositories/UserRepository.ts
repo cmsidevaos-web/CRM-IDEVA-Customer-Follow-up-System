@@ -1,6 +1,7 @@
 import { supabase } from '../services/supabaseClient';
 import { AppUser } from '../types';
 import { INITIAL_USERS, DEFAULT_PERMISSIONS } from '../data/defaultUsers';
+import { isNetworkOrFetchError, isTableMissingError } from '../utils/errorUtils';
 
 export function userToDb(u: AppUser | any) {
   const firstName = String(u.firstName || u.first_name || '').trim();
@@ -95,22 +96,6 @@ export function userFromDb(row: any): AppUser {
   };
 }
 
-export function isTableMissingError(error: any): boolean {
-  if (!error) return false;
-  const msg = typeof error === 'string' ? error : error.message || error.details || error.hint || '';
-  const code = error.code || '';
-  return (
-    code === 'PGRST205' ||
-    code === 'PGRST125' ||
-    code === '42P01' ||
-    msg.includes('Could not find the table') ||
-    msg.includes('schema cache') ||
-    (msg.includes('relation') && msg.includes('does not exist')) ||
-    msg.includes('Invalid path') ||
-    msg.includes('404')
-  );
-}
-
 function extractMissingColumn(error: any): string | null {
   if (!error) return null;
   const msg = error.message || error.details || error.hint || '';
@@ -168,10 +153,12 @@ export class UserRepository {
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.warn('[UserRepository.find Supabase warning]:', error.message, error.code);
         if (isTableMissingError(error)) {
           this.isTableAvailable = false;
           return { users: this.inMemoryUsers, fromSupabase: false, tableMissing: true };
+        }
+        if (!isNetworkOrFetchError(error)) {
+          console.warn('[UserRepository.find Supabase warning]:', error.message, error.code);
         }
         return { users: this.inMemoryUsers, fromSupabase: false, error: error.message };
       }
@@ -180,7 +167,7 @@ export class UserRepository {
 
       if (!data || data.length === 0) {
         // Table exists but is empty -> seed initial users
-        await this.seedBatch(INITIAL_USERS);
+        await this.seedBatch(INITIAL_USERS).catch(() => {});
         return { users: this.inMemoryUsers, fromSupabase: true };
       }
 
@@ -189,7 +176,6 @@ export class UserRepository {
       persistStoredUsers(mapped);
       return { users: mapped, fromSupabase: true };
     } catch (err: any) {
-      console.warn('[UserRepository.find exception]:', err);
       if (isTableMissingError(err)) {
         this.isTableAvailable = false;
         return { users: this.inMemoryUsers, fromSupabase: false, tableMissing: true };

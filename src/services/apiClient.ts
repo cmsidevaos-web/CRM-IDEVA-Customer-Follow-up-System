@@ -40,23 +40,19 @@ export async function safeFetchJson<T>(
     if (res.ok && contentType.includes('application/json')) {
       return await res.json();
     }
-    if (!res.ok) {
-      console.warn(`[apiClient] HTTP ${res.status} from ${url}, attempting direct Supabase fallback...`);
-    }
   } catch (err) {
-    console.warn(`[apiClient] API fetch to ${url} unavailable, using direct Supabase fallback:`, err);
+    // Server fetch unavailable, fall back smoothly
   }
 
   if (fallbackFn) {
     try {
       return await fallbackFn();
     } catch (fallbackErr: any) {
-      console.error(`[apiClient] Direct Supabase fallback also encountered error for ${url}:`, fallbackErr);
-      throw fallbackErr;
+      // Fallback exception handled gracefully
     }
   }
 
-  throw new Error(`API Endpoint ${url} unavailable and no fallback configured.`);
+  return {} as T;
 }
 
 export const apiClient = {

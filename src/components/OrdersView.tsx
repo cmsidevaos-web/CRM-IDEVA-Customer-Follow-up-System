@@ -356,11 +356,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       </td>
 
                       <td className="py-3.5 px-3 text-right text-slate-600 font-mono">
-                        ฿{unitP.toLocaleString()}
+                        ฿{unitP.toLocaleString(undefined, { minimumFractionDigits: unitP % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
                       </td>
 
                       <td className="py-3.5 px-3 font-extrabold text-emerald-700 text-right font-mono">
-                        ฿{Number(ord.totalAmount || 0).toLocaleString()}
+                        ฿{Number(ord.totalAmount || 0).toLocaleString(undefined, { minimumFractionDigits: Number(ord.totalAmount || 0) % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
                       </td>
 
                       <td className="py-3.5 px-3">
@@ -408,7 +408,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </td>
                   <td className="py-3 px-3 text-right text-slate-500">-</td>
                   <td className="py-3 px-3 text-right font-extrabold text-emerald-800 text-sm">
-                    ฿{filteredRevenue.toLocaleString()}
+                    ฿{filteredRevenue.toLocaleString(undefined, { minimumFractionDigits: filteredRevenue % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}
                   </td>
                   <td colSpan={2} className="py-3 px-3"></td>
                 </tr>

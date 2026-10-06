@@ -95,16 +95,17 @@ export function resolveSalesUser(salesTarget: string, users: AppUser[]): AppUser
 }
 
 async function processTelegramQueueWorker() {
-  const telegramSettingsStore = await fetchTelegramSettingsFromSupabase();
-  const topicsList = await fetchTelegramTopicsFromSupabase();
-  if (!telegramSettingsStore.is_enabled) return { processed: 0, status: 'disabled' };
+  try {
+    const telegramSettingsStore = await fetchTelegramSettingsFromSupabase();
+    const topicsList = await fetchTelegramTopicsFromSupabase();
+    if (!telegramSettingsStore.is_enabled) return { processed: 0, status: 'disabled' };
 
-  const { data: usersList } = await fetchUsersFromSupabase();
-  const queue = await fetchTelegramQueueFromSupabase();
-  const pending = queue.filter((item) => item.status === 'PENDING');
-  let processedCount = 0;
+    const { data: usersList } = await fetchUsersFromSupabase();
+    const queue = await fetchTelegramQueueFromSupabase();
+    const pending = (queue || []).filter((item) => item.status === 'PENDING');
+    let processedCount = 0;
 
-  for (const item of pending) {
+    for (const item of pending) {
     item.status = 'PROCESSING';
     await updateTelegramQueueItemSupabase(item);
 
@@ -229,6 +230,9 @@ async function processTelegramQueueWorker() {
   }
 
   return { processed: processedCount, totalPending: pending.length };
+} catch (err: any) {
+  return { processed: 0, status: 'error', error: err?.message };
+}
 }
 
 async function startServer() {

@@ -1,9 +1,36 @@
 import { supabase } from '../services/supabaseClient';
 import { activityFromDb, activityToDb } from '../services/supabaseDataStore';
 import { Activity } from '../types';
+import { INITIAL_ACTIVITIES } from '../data/defaultData';
+import { isNetworkOrFetchError, isTableMissingError } from '../utils/errorUtils';
+
+const ACTIVITIES_CACHE_KEY = 'ideva_crm_activities_cache';
+
+function getStoredActivities(): Activity[] {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const raw = localStorage.getItem(ACTIVITIES_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+  }
+  return [...INITIAL_ACTIVITIES];
+}
+
+function persistStoredActivities(activities: Activity[]): void {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.setItem(ACTIVITIES_CACHE_KEY, JSON.stringify(activities));
+    } catch (e) {}
+  }
+}
 
 export class ActivityRepository {
-  private fallbackActivities: Map<string, Activity> = new Map();
+  private inMemoryActivities: Activity[] = getStoredActivities();
 
   async find(customerId?: string): Promise<Activity[]> {
     let list: Activity[] = [];
@@ -13,60 +40,59 @@ export class ActivityRepository {
         query = query.eq('customer_id', customerId);
       }
       const { data, error } = await query;
-      if (!error && data) {
-        list = (data || []).map(activityFromDb);
-      } else if (error) {
-        console.warn('[ActivityRepository.find error, using fallback]:', error.message);
+      if (!error && data && data.length > 0) {
+        list = data.map(activityFromDb);
+        if (!customerId) {
+          this.inMemoryActivities = list;
+          persistStoredActivities(list);
+        }
+        return list;
       }
     } catch (err) {
-      console.warn('[ActivityRepository.find exception]:', err);
+      // Graceful fallback to local cache
     }
 
-    const existingIds = new Set(list.map((a) => a.id));
-    for (const [id, act] of this.fallbackActivities.entries()) {
-      if (!existingIds.has(id)) {
-        if (!customerId || act.customerId === customerId) {
-          list.unshift(act);
-        }
-      }
+    if (customerId) {
+      return this.inMemoryActivities.filter((a) => a.customerId === customerId);
     }
-
-    return list;
+    return this.inMemoryActivities;
   }
 
   async findById(id: string): Promise<Activity | null> {
-    if (this.fallbackActivities.has(id)) {
-      return this.fallbackActivities.get(id) || null;
-    }
     try {
       const { data, error } = await supabase.from('activities').select('*').eq('id', id).single();
-      if (error || !data) return this.fallbackActivities.get(id) || null;
-      return activityFromDb(data);
-    } catch (err) {
-      return this.fallbackActivities.get(id) || null;
-    }
+      if (!error && data) {
+        return activityFromDb(data);
+      }
+    } catch (err) {}
+
+    return this.inMemoryActivities.find((a) => a.id === id) || null;
   }
 
   async save(activity: Activity): Promise<Activity> {
+    const existingIdx = this.inMemoryActivities.findIndex((a) => a.id === activity.id);
+    if (existingIdx >= 0) {
+      this.inMemoryActivities[existingIdx] = { ...this.inMemoryActivities[existingIdx], ...activity };
+    } else {
+      this.inMemoryActivities.unshift(activity);
+    }
+    persistStoredActivities(this.inMemoryActivities);
+
     const dbRow = activityToDb(activity);
     try {
       const { data, error } = await supabase.from('activities').upsert(dbRow).select().single();
-      if (error) {
-        console.warn('[ActivityRepository.save database warning - saving to resilient cache]:', error.message);
-        this.fallbackActivities.set(activity.id, activity);
-        return activity;
+      if (!error && data) {
+        return activityFromDb(data);
       }
-      this.fallbackActivities.set(activity.id, activityFromDb(data || dbRow));
-      return activityFromDb(data || dbRow);
-    } catch (err: any) {
-      console.warn('[ActivityRepository.save exception - saving to resilient cache]:', err?.message || err);
-      this.fallbackActivities.set(activity.id, activity);
-      return activity;
-    }
+    } catch (err: any) {}
+
+    return activity;
   }
 
   async delete(id: string): Promise<boolean> {
-    this.fallbackActivities.delete(id);
+    this.inMemoryActivities = this.inMemoryActivities.filter((a) => a.id !== id);
+    persistStoredActivities(this.inMemoryActivities);
+
     try {
       const { error } = await supabase.from('activities').delete().eq('id', id);
       return !error;
@@ -77,19 +103,20 @@ export class ActivityRepository {
 
   async seedBatch(activities: Activity[]): Promise<void> {
     for (const act of activities) {
-      this.fallbackActivities.set(act.id, act);
+      if (!this.inMemoryActivities.some((a) => a.id === act.id)) {
+        this.inMemoryActivities.push(act);
+      }
     }
+    persistStoredActivities(this.inMemoryActivities);
+
     try {
       const dbRows = activities.map(activityToDb);
       for (let i = 0; i < dbRows.length; i += 50) {
         const chunk = dbRows.slice(i, i + 50);
         await supabase.from('activities').upsert(chunk);
       }
-    } catch (err) {
-      console.warn('[ActivityRepository.seedBatch warning]:', err);
-    }
+    } catch (err) {}
   }
 }
 
 export const activityRepository = new ActivityRepository();
-

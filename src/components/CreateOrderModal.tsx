@@ -41,8 +41,8 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
   const [orderType, setOrderType] = useState<OrderType>('BRAND_PRODUCTION');
 
   const [productName, setProductName] = useState('ครีมกันแดด SPF50+');
-  const [quantity, setQuantity] = useState(300);
-  const [unitPrice, setUnitPrice] = useState(190);
+  const [quantity, setQuantity] = useState<number | string>(300);
+  const [unitPrice, setUnitPrice] = useState<number | string>(190);
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
   const [deliveryDate, setDeliveryDate] = useState(
     new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -133,7 +133,9 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
     setIsDropdownOpen(true);
   };
 
-  const totalAmount = quantity * unitPrice;
+  const numericUnitPrice = typeof unitPrice === 'string' ? parseFloat(unitPrice) || 0 : Number(unitPrice) || 0;
+  const numericQuantity = typeof quantity === 'string' ? parseInt(quantity, 10) || 0 : Number(quantity) || 0;
+  const totalAmount = Number((numericQuantity * numericUnitPrice).toFixed(2));
 
   // Formula calculation for next reorder (Brand Production)
   const delDateObj = new Date(deliveryDate || new Date().toISOString().split('T')[0]);
@@ -166,9 +168,9 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
       orderType,
       testerFollowUpDate: isTester ? finalTesterFollowUpDate : undefined,
       productName,
-      quantity: Number(quantity),
-      unitPrice: Number(unitPrice),
-      totalAmount,
+      quantity: Number(numericQuantity) || 1,
+      unitPrice: Number(numericUnitPrice),
+      totalAmount: Number(totalAmount),
       orderDate,
       deliveryDate,
       reorderCycleDays: isTester ? 0 : Number(reorderCycleDays),
@@ -453,7 +455,7 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                 <div className="flex items-center">
                   <button
                     type="button"
-                    onClick={() => setQuantity((prev) => Math.max(1, (prev || 1) - (orderType === 'TESTER' ? 1 : 50)))}
+                    onClick={() => setQuantity((prev) => Math.max(1, (Number(prev) || 1) - (orderType === 'TESTER' ? 1 : 50)))}
                     className="px-2.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-l-xl font-bold border border-r-0 border-slate-200 transition-colors"
                   >
                     -
@@ -461,14 +463,15 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                   <input
                     type="number"
                     min="1"
+                    step="1"
                     required
-                    value={quantity || ''}
-                    onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                    className="w-full p-2.5 border-y border-slate-200 text-center font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    className="w-full p-2.5 border-y border-slate-200 text-center font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono"
                   />
                   <button
                     type="button"
-                    onClick={() => setQuantity((prev) => (prev || 1) + (orderType === 'TESTER' ? 1 : 50))}
+                    onClick={() => setQuantity((prev) => (Number(prev) || 1) + (orderType === 'TESTER' ? 1 : 50))}
                     className="px-2.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-r-xl font-bold border border-l-0 border-slate-200 transition-colors"
                   >
                     +
@@ -477,15 +480,27 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">ราคาต่อหน่วย (บาท) *</label>
-                <input
-                  type="number"
-                  min="0"
-                  required
-                  value={unitPrice || ''}
-                  onChange={(e) => setUnitPrice(Math.max(0, parseFloat(e.target.value) || 0))}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 font-bold text-slate-900"
-                />
+                <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>ราคาต่อหน่วย (บาท) *</span>
+                  <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200/60">
+                    ใส่สตางค์ได้ (0.00)
+                  </span>
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 font-bold text-xs font-mono">
+                    ฿
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={unitPrice}
+                    onChange={(e) => setUnitPrice(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full pl-7 pr-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 font-bold text-slate-900 font-mono text-xs"
+                  />
+                </div>
               </div>
             </div>
 
@@ -499,7 +514,7 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                       type="button"
                       onClick={() => setQuantity(qty)}
                       className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all ${
-                        quantity === qty
+                        Number(quantity) === qty
                           ? 'bg-purple-600 text-white shadow-xs'
                           : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200/60'
                       }`}
@@ -513,7 +528,7 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                       type="button"
                       onClick={() => setQuantity(qty)}
                       className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all ${
-                        quantity === qty
+                        Number(quantity) === qty
                           ? 'bg-emerald-600 text-white shadow-xs'
                           : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/60'
                       }`}
@@ -537,7 +552,7 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                 <DollarSign size={16} /> ยอดรวมสุทธิ:
               </span>
               <span className="text-[10px] text-slate-500 font-normal">
-                ({(quantity || 0).toLocaleString()} {orderType === 'TESTER' ? 'ชุด' : 'ชิ้น'} × ฿{(unitPrice || 0).toLocaleString()})
+                ({numericQuantity.toLocaleString()} {orderType === 'TESTER' ? 'ชุด' : 'ชิ้น'} × ฿{numericUnitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
               </span>
             </div>
             <span
@@ -545,7 +560,7 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                 orderType === 'TESTER' ? 'text-purple-700' : 'text-emerald-700'
               }`}
             >
-              ฿{totalAmount.toLocaleString()} บาท
+              ฿{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท
             </span>
           </div>
 

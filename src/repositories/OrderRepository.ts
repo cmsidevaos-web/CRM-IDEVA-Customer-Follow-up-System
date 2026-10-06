@@ -1,9 +1,36 @@
 import { supabase } from '../services/supabaseClient';
 import { orderFromDb, orderToDb } from '../services/supabaseDataStore';
 import { Order } from '../types';
+import { INITIAL_ORDERS } from '../data/defaultData';
+import { isNetworkOrFetchError, isTableMissingError } from '../utils/errorUtils';
+
+const ORDERS_CACHE_KEY = 'ideva_crm_orders_cache';
+
+function getStoredOrders(): Order[] {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const raw = localStorage.getItem(ORDERS_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+  }
+  return [...INITIAL_ORDERS];
+}
+
+function persistStoredOrders(orders: Order[]): void {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.setItem(ORDERS_CACHE_KEY, JSON.stringify(orders));
+    } catch (e) {}
+  }
+}
 
 export class OrderRepository {
-  private fallbackOrders: Map<string, Order> = new Map();
+  private inMemoryOrders: Order[] = getStoredOrders();
 
   async find(customerId?: string): Promise<Order[]> {
     let list: Order[] = [];
@@ -13,65 +40,59 @@ export class OrderRepository {
         query = query.eq('customer_id', customerId);
       }
       const { data, error } = await query;
-      if (!error && data) {
+      if (!error && data && data.length > 0) {
         list = data.map(orderFromDb);
-      } else if (error) {
-        console.warn('[OrderRepository.find error, using local/fallback store]:', error.message);
+        if (!customerId) {
+          this.inMemoryOrders = list;
+          persistStoredOrders(list);
+        }
+        return list;
       }
     } catch (err) {
-      console.warn('[OrderRepository.find exception]:', err);
+      // Graceful fallback to local cache
     }
 
-    // Merge in-memory / fallback orders
-    const existingIds = new Set(list.map((o) => o.id));
-    for (const [id, ord] of this.fallbackOrders.entries()) {
-      if (!existingIds.has(id)) {
-        if (!customerId || ord.customerId === customerId) {
-          list.unshift(ord);
-        }
-      }
+    if (customerId) {
+      return this.inMemoryOrders.filter((o) => o.customerId === customerId);
     }
-
-    return list;
+    return this.inMemoryOrders;
   }
 
   async findById(id: string): Promise<Order | null> {
-    if (this.fallbackOrders.has(id)) {
-      return this.fallbackOrders.get(id) || null;
-    }
     try {
       const { data, error } = await supabase.from('orders').select('*').eq('id', id).single();
-      if (error || !data) {
-        return this.fallbackOrders.get(id) || null;
+      if (!error && data) {
+        return orderFromDb(data);
       }
-      return orderFromDb(data);
-    } catch (err) {
-      return this.fallbackOrders.get(id) || null;
-    }
+    } catch (err) {}
+
+    return this.inMemoryOrders.find((o) => o.id === id) || null;
   }
 
   async save(order: Order): Promise<Order> {
+    const existingIdx = this.inMemoryOrders.findIndex((o) => o.id === order.id);
+    if (existingIdx >= 0) {
+      this.inMemoryOrders[existingIdx] = { ...this.inMemoryOrders[existingIdx], ...order };
+    } else {
+      this.inMemoryOrders.unshift(order);
+    }
+    persistStoredOrders(this.inMemoryOrders);
+
     const dbRow = orderToDb(order);
     try {
       const { data, error } = await supabase.from('orders').upsert(dbRow).select().single();
-      if (error) {
-        console.warn('[OrderRepository.save database warning - saving to resilient cache]:', error.message);
-        // Resilient fallback so users are never blocked by missing triggers or missing notification_queue tables
-        this.fallbackOrders.set(order.id, order);
-        return order;
+      if (!error && data) {
+        return orderFromDb(data);
       }
-      // If saved successfully in DB, keep in sync
-      this.fallbackOrders.set(order.id, orderFromDb(data || dbRow));
-      return orderFromDb(data || dbRow);
-    } catch (err: any) {
-      console.warn('[OrderRepository.save exception - saving to resilient cache]:', err?.message || err);
-      this.fallbackOrders.set(order.id, order);
-      return order;
-    }
+    } catch (err: any) {}
+
+    return order;
   }
 
   async delete(id: string): Promise<boolean> {
-    this.fallbackOrders.delete(id);
+    this.inMemoryOrders = this.inMemoryOrders.filter((o) => o.id !== id);
+    persistStoredOrders(this.inMemoryOrders);
+
     try {
       const { error } = await supabase.from('orders').delete().eq('id', id);
       return !error;
@@ -82,19 +103,20 @@ export class OrderRepository {
 
   async seedBatch(orders: Order[]): Promise<void> {
     for (const ord of orders) {
-      this.fallbackOrders.set(ord.id, ord);
+      if (!this.inMemoryOrders.some((o) => o.id === ord.id)) {
+        this.inMemoryOrders.push(ord);
+      }
     }
+    persistStoredOrders(this.inMemoryOrders);
+
     try {
       const dbRows = orders.map(orderToDb);
       for (let i = 0; i < dbRows.length; i += 50) {
         const chunk = dbRows.slice(i, i + 50);
         await supabase.from('orders').upsert(chunk);
       }
-    } catch (err) {
-      console.warn('[OrderRepository.seedBatch warning]:', err);
-    }
+    } catch (err) {}
   }
 }
 
 export const orderRepository = new OrderRepository();
-

@@ -246,35 +246,32 @@ export function isTableMissingError(error: any): boolean {
 export async function fetchCustomersFromSupabase(): Promise<{ data: Customer[]; fromSupabase: boolean; tableMissing?: boolean; error?: string }> {
   try {
     const res = await customerRepository.find();
-    if (!res.error) {
-      isSupabaseConnected = true;
-      return { data: res.customers, fromSupabase: true };
-    } else {
-      if (isTableMissingError(res.error)) {
-        return { data: [], fromSupabase: false, tableMissing: true, error: res.error };
-      }
-      return { data: [], fromSupabase: false, error: res.error };
-    }
+    isSupabaseConnected = res.fromSupabase;
+    return {
+      data: res.customers,
+      fromSupabase: res.fromSupabase,
+      tableMissing: res.tableMissing,
+      error: res.error,
+    };
   } catch (err: any) {
-    return { data: [], fromSupabase: false, error: err?.message };
+    isSupabaseConnected = false;
+    const fallback = await customerRepository.find();
+    return { data: fallback.customers, fromSupabase: false, error: err?.message };
   }
 }
 
 export async function upsertCustomerSupabase(customer: Customer): Promise<Customer> {
   const saved = await customerRepository.save(customer);
-  isSupabaseConnected = true;
   return saved;
 }
 
 export async function deleteCustomerSupabase(id: string): Promise<boolean> {
   const ok = await customerRepository.delete(id);
-  if (ok) isSupabaseConnected = true;
   return ok;
 }
 
 export async function seedCustomersToSupabase(items: Customer[]) {
   await customerRepository.seedBatch(items);
-  isSupabaseConnected = true;
 }
 
 // ==========================================
@@ -284,16 +281,15 @@ export async function seedCustomersToSupabase(items: Customer[]) {
 export async function fetchActivitiesFromSupabase(): Promise<{ data: Activity[]; fromSupabase: boolean }> {
   try {
     const list = await activityRepository.find();
-    isSupabaseConnected = true;
-    return { data: list, fromSupabase: true };
+    return { data: list, fromSupabase: isSupabaseConnected };
   } catch (e) {
-    return { data: [], fromSupabase: false };
+    const list = await activityRepository.find();
+    return { data: list, fromSupabase: false };
   }
 }
 
 export async function addActivitySupabase(act: Activity): Promise<Activity> {
   const saved = await activityRepository.save(act);
-  isSupabaseConnected = true;
   return saved;
 }
 
@@ -308,16 +304,15 @@ export async function seedActivitiesToSupabase(items: Activity[]) {
 export async function fetchOrdersFromSupabase(): Promise<{ data: Order[]; fromSupabase: boolean }> {
   try {
     const list = await orderRepository.find();
-    isSupabaseConnected = true;
-    return { data: list, fromSupabase: true };
+    return { data: list, fromSupabase: isSupabaseConnected };
   } catch (e) {
-    return { data: [], fromSupabase: false };
+    const list = await orderRepository.find();
+    return { data: list, fromSupabase: false };
   }
 }
 
 export async function addOrderSupabase(ord: Order): Promise<Order> {
   const saved = await orderRepository.save(ord);
-  isSupabaseConnected = true;
   return saved;
 }
 
